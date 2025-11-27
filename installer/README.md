@@ -40,13 +40,14 @@ sudo SOURCE_DIR=$PWD ./install.sh
 The installer automatically:
 
 1. ✅ **Detects your OS** (Debian, Ubuntu, Raspberry Pi OS, Arch)
-2. ✅ **Installs system dependencies** (ALSA, Avahi, build tools)
+2. ✅ **Installs system dependencies** (ALSA, Avahi, build tools, AirPlay 2 libraries)
 3. ✅ **Installs Rust** (if not already present)
-4. ✅ **Builds shairport-sync** from source (latest stable)
-5. ✅ **Builds AirSync daemon** from source
-6. ✅ **Detects hardware** and generates optimal config
-7. ✅ **Sets up systemd service** (auto-start on boot)
-8. ✅ **Starts the receiver** immediately
+4. ✅ **Installs NQPTP** (timing companion for AirPlay 2)
+5. ✅ **Builds shairport-sync with AirPlay 2 support** from source (latest stable)
+6. ✅ **Builds AirSync daemon** from source
+7. ✅ **Detects hardware** and generates optimal config
+8. ✅ **Sets up systemd services** (auto-start on boot)
+9. ✅ **Starts the receiver** immediately
 
 Takes ~5-10 minutes on Raspberry Pi Zero 2 W (first time).
 

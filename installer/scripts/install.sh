@@ -70,6 +70,14 @@ install_dependencies() {
                 libssl-dev \
                 libsoxr-dev \
                 libsystemd-dev \
+                libplist-dev \
+                libsodium-dev \
+                libavutil-dev \
+                libavcodec-dev \
+                libavformat-dev \
+                uuid-dev \
+                libgcrypt-dev \
+                xxd \
                 curl
             ;;
         arch)
@@ -85,7 +93,11 @@ install_dependencies() {
                 avahi \
                 openssl \
                 libsoxr \
-                systemd
+                systemd \
+                libplist \
+                libsodium \
+                ffmpeg \
+                libsndfile
             ;;
         *)
             echo -e "${RED}Error: Unsupported OS: $OS${NC}"
@@ -108,6 +120,42 @@ install_rust() {
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
     source "$HOME/.cargo/env"
     echo -e "${GREEN}✓${NC} Rust installed: $(cargo --version)"
+}
+
+# Install NQPTP (required for AirPlay 2)
+install_nqptp() {
+    if command -v nqptp &> /dev/null; then
+        echo -e "${GREEN}✓${NC} NQPTP already installed"
+        return
+    fi
+
+    echo ""
+    echo "Installing NQPTP (required for AirPlay 2)..."
+
+    cd /tmp
+    rm -rf nqptp
+    git clone https://github.com/mikebrady/nqptp.git
+    cd nqptp
+
+    autoreconf -fi
+    ./configure --with-systemd-startup
+    make
+    make install || {
+        # Fallback: install binary manually
+        echo -e "${YELLOW}Warning: Full install failed, installing manually${NC}"
+        install -m 0755 nqptp /usr/local/bin/
+    }
+
+    cd /tmp
+    rm -rf nqptp
+
+    # Enable and start NQPTP service if systemd is available
+    if [ -d "/run/systemd/system" ]; then
+        systemctl enable nqptp 2>/dev/null || true
+        systemctl start nqptp 2>/dev/null || true
+    fi
+
+    echo -e "${GREEN}✓${NC} NQPTP installed"
 }
 
 # Helper function to install shairport-sync systemd service
@@ -208,6 +256,7 @@ install_shairport_sync() {
         --with-avahi \
         --with-ssl=openssl \
         $SYSTEMD_FLAG \
+        --with-airplay-2 \
         --with-metadata
 
     make -j$(nproc)
@@ -396,6 +445,14 @@ verify_installation() {
 
     local ERRORS=0
 
+    # Check NQPTP
+    if ! command -v nqptp &> /dev/null; then
+        echo -e "${RED}✗${NC} NQPTP not found in PATH"
+        ERRORS=$((ERRORS + 1))
+    else
+        echo -e "${GREEN}✓${NC} NQPTP installed"
+    fi
+
     # Check shairport-sync
     if ! command -v shairport-sync &> /dev/null; then
         echo -e "${RED}✗${NC} shairport-sync not found in PATH"
@@ -452,6 +509,7 @@ main() {
     detect_os
     install_dependencies
     install_rust
+    install_nqptp
     install_shairport_sync
     create_user
     install_airsync

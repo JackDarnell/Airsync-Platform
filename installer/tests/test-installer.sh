@@ -92,6 +92,32 @@ else
     test_pass "No early return for existing binary"
 fi
 
+# Test 7: Installer should install NQPTP for AirPlay 2
+echo "Test 7: Installer includes NQPTP for AirPlay 2"
+if grep -q "install_nqptp\|NQPTP\|nqptp" ../scripts/install.sh; then
+    test_pass "Installer includes NQPTP installation"
+else
+    test_fail "Installer missing NQPTP (required for AirPlay 2)"
+fi
+
+# Test 8: Installer should build with AirPlay 2 support
+echo "Test 8: Installer configures shairport-sync with AirPlay 2"
+if grep -q "\\-\\-with-airplay-2" ../scripts/install.sh; then
+    test_pass "Installer includes --with-airplay-2 flag"
+else
+    test_fail "Installer missing --with-airplay-2 flag"
+fi
+
+# Test 9: Installer should install AirPlay 2 dependencies
+echo "Test 9: Installer includes AirPlay 2 dependencies"
+if grep -q "libplist-dev" ../scripts/install.sh && \
+   grep -q "libsodium-dev" ../scripts/install.sh && \
+   grep -q "libavcodec-dev" ../scripts/install.sh; then
+    test_pass "Installer includes AirPlay 2 dependencies"
+else
+    test_fail "Installer missing AirPlay 2 dependencies (libplist, libsodium, ffmpeg)"
+fi
+
 echo ""
 echo "Test Results:"
 echo "============="
