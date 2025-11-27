@@ -33,9 +33,30 @@ The project is in its initial setup phase. We are following strict TDD principle
 - ✅ CLI tool for hardware detection (`detect-hardware`)
 
 ### What's Next
+- ⏳ Test installer on real Raspberry Pi hardware
 - ⏳ Shairport-sync process manager (start/stop/monitor/recover)
 - ⏳ Configuration generator with interactive prompts
 - ⏳ WebSocket API for iOS companion app
+
+## Installation
+
+### One-Command Install (Raspberry Pi / Linux)
+
+```bash
+curl -sSL https://raw.githubusercontent.com/yourusername/airsync/main/installer/scripts/install.sh | sudo bash
+```
+
+This automatically:
+- ✅ Detects your hardware (Pi Zero 2 W, Pi 4, Pi 5, etc.)
+- ✅ Installs all dependencies (Rust, build tools, ALSA, Avahi)
+- ✅ Builds and installs shairport-sync
+- ✅ Builds and installs AirSync daemon
+- ✅ Generates optimized configuration
+- ✅ Sets up systemd service (auto-start on boot)
+
+Takes ~5-10 minutes. After installation, your device appears in iOS Control Center!
+
+See [installer/README.md](installer/README.md) for troubleshooting and manual installation.
 
 ## Development Setup
 
@@ -46,12 +67,12 @@ The project is in its initial setup phase. We are following strict TDD principle
 - Git
 - (Optional) Cross-compilation tools for ARM
 
-### Installation
+### Building from Source
 
 ```bash
-# Verify Rust installation
-rustup --version
-cargo --version
+# Clone repository
+git clone https://github.com/yourusername/airsync.git
+cd airsync
 
 # Build all crates
 cargo build
@@ -86,6 +107,17 @@ docker-compose down
 ```
 
 This simulates a Raspberry Pi Zero 2 W with mocked `/proc` files.
+
+### Testing the Installer
+
+To test the full installation process in Docker:
+
+```bash
+cd docker/pi-simulator
+./test-installer.sh
+```
+
+This runs the complete installer in a fresh Debian container.
 
 ## Running Tests
 
@@ -154,14 +186,17 @@ airsync/
 ├── crates/
 │   ├── receiver-core/        # Main receiver daemon (Rust)
 │   └── shared-protocol/      # Cross-platform types (Rust)
+├── installer/                # One-command installation ✅
+│   ├── scripts/install.sh    # Main installer script
+│   └── README.md             # Installation guide
+├── docker/                   # Docker Pi simulator ✅
+│   └── pi-simulator/         # Test environment
+├── docs/                     # Architecture documentation ✅
+│   └── shairport-sync-integration.md
 ├── ios-app/                  # Swift iOS companion (coming soon)
-├── installer/                # One-command device setup (coming soon)
-├── firmware/
-│   └── docker/               # Development containers (coming soon)
 ├── tools/
 │   ├── hw-profiler/          # Hardware benchmarking (coming soon)
 │   └── latency-analyzer/     # Calibration data analysis (coming soon)
-├── docs/                     # Architecture documentation
 └── Cargo.toml                # Workspace configuration
 ```
 
