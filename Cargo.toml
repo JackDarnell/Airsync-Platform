@@ -10,7 +10,7 @@ version = "0.1.0"
 edition = "2021"
 authors = ["AirSync Contributors"]
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/yourusername/airsync"
+repository = "https://github.com/JackDarnell/airsync"
 
 [workspace.dependencies]
 tokio = { version = "1.35", features = ["full"] }

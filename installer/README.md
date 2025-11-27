@@ -5,13 +5,13 @@ One-command installation for headless Raspberry Pi systems.
 ## Quick Install
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/yourusername/airsync/main/installer/scripts/install.sh | sudo bash
+curl -sSL https://raw.githubusercontent.com/JackDarnell/airsync/main/installer/scripts/install.sh | sudo bash
 ```
 
 Or download and inspect first:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/yourusername/airsync/main/installer/scripts/install.sh > install.sh
+curl -sSL https://raw.githubusercontent.com/JackDarnell/airsync/main/installer/scripts/install.sh > install.sh
 less install.sh
 sudo bash install.sh
 ```
@@ -50,6 +50,7 @@ airsync-detect
 ### Customize Device Name
 
 Edit the config:
+
 ```bash
 sudo nano /etc/shairport-sync.conf
 # Change: name = "AirSync";
@@ -59,18 +60,19 @@ sudo systemctl restart shairport-sync
 
 ## Supported Systems
 
-| OS | Architecture | Status |
-|----|--------------|--------|
-| Raspberry Pi OS | ARM64 | ✅ Tested |
-| Debian 12+ | ARM64/x86_64 | ✅ Supported |
-| Ubuntu 22.04+ | ARM64/x86_64 | ✅ Supported |
-| Arch Linux | ARM64/x86_64 | ✅ Supported |
+| OS              | Architecture | Status       |
+| --------------- | ------------ | ------------ |
+| Raspberry Pi OS | ARM64        | ✅ Tested    |
+| Debian 12+      | ARM64/x86_64 | ✅ Supported |
+| Ubuntu 22.04+   | ARM64/x86_64 | ✅ Supported |
+| Arch Linux      | ARM64/x86_64 | ✅ Supported |
 
 ## Troubleshooting
 
 ### Installer fails with permission error
 
 Make sure to run with `sudo`:
+
 ```bash
 curl -sSL ... | sudo bash
 ```
@@ -78,11 +80,13 @@ curl -sSL ... | sudo bash
 ### Can't find device in iOS Control Center
 
 1. Check if service is running:
+
    ```bash
    systemctl status shairport-sync
    ```
 
 2. Ensure Avahi is running:
+
    ```bash
    systemctl status avahi-daemon
    ```
@@ -95,6 +99,7 @@ curl -sSL ... | sudo bash
 ### Audio not working
 
 1. List audio devices:
+
    ```bash
    aplay -l
    ```

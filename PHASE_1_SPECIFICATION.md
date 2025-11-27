@@ -6,7 +6,7 @@ A TDD-driven AirPlay 2 receiver with runtime hardware detection and iOS latency 
 
 ## Overview
 
-Phase 1 delivers a production-ready AirPlay 2 receiver that runs on minimal hardware (Raspberry Pi Zero 2 W) while gracefully scaling to more powerful devices. The system detects hardware capabilities at runtime and provides precise audio latency calibration through an iOS companion app.
+Phase 1 delivers a production-ready AirPlay 2 receiver that runs on affordable hardware (Raspberry Pi 4 1GB and up). The system detects hardware capabilities at runtime and provides precise audio latency calibration through an iOS companion app. All supported systems receive the same high-quality configuration with Soxr interpolation and full AirPlay 2 features.
 
 ### Core Principles
 
@@ -104,12 +104,14 @@ airsync/
 **Deliverables**:
 
 1. **Monorepo scaffolding**
+
    - Turborepo + pnpm workspaces
    - Shared TypeScript config
    - ESLint + Prettier configuration
    - Vitest for unit/integration tests
 
 2. **Docker Pi emulator**
+
    - QEMU-based ARM64 emulation (Debian Bookworm)
    - Simulated hardware interfaces (I2S, GPIO, USB audio)
    - Network simulation for mDNS testing
@@ -124,19 +126,19 @@ airsync/
 
 ```typescript
 // packages/receiver-core/tests/e2e/installation.test.ts
-describe('Installation E2E', () => {
-  it('installs successfully on fresh Debian system', async () => {
+describe("Installation E2E", () => {
+  it("installs successfully on fresh Debian system", async () => {
     const container = await startPiEmulator();
-    const result = await container.exec('curl -sSL install.airsync.dev | bash');
+    const result = await container.exec("curl -sSL install.airsync.dev | bash");
     expect(result.exitCode).toBe(0);
-    expect(await container.serviceStatus('airsync')).toBe('running');
+    expect(await container.serviceStatus("airsync")).toBe("running");
   });
 
-  it('installer is idempotent', async () => {
+  it("installer is idempotent", async () => {
     // Running twice should not break anything
   });
 
-  it('handles missing dependencies gracefully', async () => {
+  it("handles missing dependencies gracefully", async () => {
     // Should install all deps or fail with clear message
   });
 });
@@ -150,95 +152,96 @@ describe('Installation E2E', () => {
 
 **Capabilities to Detect**:
 
-| Capability | Detection Method | Feature Impact |
-|------------|------------------|----------------|
-| CPU cores | `/proc/cpuinfo` | Concurrent processing limits |
-| RAM | `/proc/meminfo` | Buffer sizes, caching strategy |
-| Audio outputs | ALSA enumeration | Available output options |
-| I2S DAC | Device tree / `/proc/device-tree` | High-quality audio path |
-| USB audio | `lsusb` + ALSA | External DAC support |
-| Network | Interface enumeration | WiFi vs Ethernet priority |
-| GPU/VideoCore | `/dev/vchiq` presence | Future: HW-accelerated DSP |
+| Capability    | Detection Method                  | Feature Impact                 |
+| ------------- | --------------------------------- | ------------------------------ |
+| CPU cores     | `/proc/cpuinfo`                   | Concurrent processing limits   |
+| RAM           | `/proc/meminfo`                   | Buffer sizes, caching strategy |
+| Audio outputs | ALSA enumeration                  | Available output options       |
+| I2S DAC       | Device tree / `/proc/device-tree` | High-quality audio path        |
+| USB audio     | `lsusb` + ALSA                    | External DAC support           |
+| Network       | Interface enumeration             | WiFi vs Ethernet priority      |
+| GPU/VideoCore | `/dev/vchiq` presence             | Future: HW-accelerated DSP     |
 
-**Hardware Profiles**:
+**Minimum Requirements**:
 
 ```typescript
-// packages/receiver-core/src/hardware/profiles.ts
-interface HardwareProfile {
-  id: string;
-  minCores: number;
-  minRamMB: number;
-  features: FeatureSet;
+// packages/receiver-core/src/hardware/requirements.ts
+interface MinimumRequirements {
+  minCores: 4;
+  minRamMB: 1024; // AirPlay 2 requires at least 1GB for reliable performance
+  requiredAudio: ["alsa"];
 }
 
-const PROFILES: HardwareProfile[] = [
-  {
-    id: 'minimal',
-    minCores: 4,
-    minRamMB: 256,
-    features: {
-      airplay: true,
-      webUI: false,        // Too resource-intensive
-      localTTS: false,
-      calibration: true,
-    }
-  },
-  {
-    id: 'standard',
-    minCores: 4,
-    minRamMB: 1024,
-    features: {
-      airplay: true,
-      webUI: true,
-      localTTS: false,
-      calibration: true,
-    }
-  },
-  {
-    id: 'enhanced',
-    minCores: 4,
-    minRamMB: 4096,
-    features: {
-      airplay: true,
-      webUI: true,
-      localTTS: true,      // Can run Piper TTS locally
-      calibration: true,
-    }
-  }
-];
+function isCapable(capabilities: HardwareCapabilities): boolean {
+  return (
+    capabilities.cpuCores >= 4 &&
+    capabilities.ramMB >= 1024 &&
+    capabilities.audioOutputs.length > 0
+  );
+}
 ```
+
+All capable systems run with the same high-quality configuration:
+
+- **Soxr interpolation** for best audio quality
+- **Cover art enabled**
+- **0.1s audio buffer**
+- **Full AirPlay 2 support** including multi-room sync
+
+**Supported Hardware**:
+
+- Raspberry Pi 4 Model B (1GB, 2GB, 4GB, 8GB)
+- Raspberry Pi 5 (4GB, 8GB)
+- Raspberry Pi 400 (4GB)
+- Generic ARM64/x86_64 Linux systems with 1GB+ RAM
 
 **Test Requirements**:
 
 ```typescript
 // packages/receiver-core/tests/unit/hardware/detector.test.ts
-describe('HardwareDetector', () => {
-  it('correctly identifies Pi Zero 2 W', async () => {
-    const detector = new HardwareDetector(mockPiZero2WSystem);
+describe("HardwareDetector", () => {
+  it("correctly identifies Pi 4 as capable", async () => {
+    const detector = new HardwareDetector(mockPi4System);
     const caps = await detector.detect();
-    
+
     expect(caps.cpuCores).toBe(4);
-    expect(caps.ramMB).toBeCloseTo(512, -1);
-    expect(caps.boardId).toBe('raspberry-pi-zero-2-w');
+    expect(caps.ramMB).toBeGreaterThanOrEqual(1024);
+    expect(caps.boardId).toBe("raspberry-pi-4-model-b");
+    expect(isCapable(caps)).toBe(true);
   });
 
-  it('detects I2S DAC when present', async () => {
+  it("detects I2S DAC when present", async () => {
     const detector = new HardwareDetector(mockSystemWithI2SDAC);
     const caps = await detector.detect();
-    
-    expect(caps.audioOutputs).toContain('i2s');
-    expect(caps.preferredOutput).toBe('i2s');
+
+    expect(caps.audioOutputs).toContain("i2s");
+    expect(caps.preferredOutput).toBe("i2s");
   });
 
-  it('falls back to USB audio when no I2S', async () => {
-    // ...
+  it("falls back to USB audio when no I2S", async () => {
+    const detector = new HardwareDetector(mockSystemWithUSBAudio);
+    const caps = await detector.detect();
+
+    expect(caps.audioOutputs).toContain("usb");
+    expect(caps.preferredOutput).toBe("usb");
   });
 
-  it('returns minimal profile when hardware is constrained', async () => {
-    const detector = new HardwareDetector(mockLowMemSystem);
-    const profile = await detector.getProfile();
-    
-    expect(profile.features.webUI).toBe(false);
+  it("rejects Pi Zero 2 W (insufficient RAM)", async () => {
+    const detector = new HardwareDetector(mockPiZero2WSystem); // 4 cores but only 512MB
+    const caps = await detector.detect();
+
+    expect(caps.cpuCores).toBe(4);
+    expect(caps.ramMB).toBe(512);
+    expect(isCapable(caps)).toBe(false);
+  });
+
+  it("rejects Pi Zero W (insufficient cores and RAM)", async () => {
+    const detector = new HardwareDetector(mockPiZeroWSystem); // 1 core, 512MB
+    const caps = await detector.detect();
+
+    expect(caps.cpuCores).toBe(1);
+    expect(caps.ramMB).toBe(512);
+    expect(isCapable(caps)).toBe(false);
   });
 });
 ```
@@ -252,12 +255,14 @@ describe('HardwareDetector', () => {
 **Components**:
 
 1. **Shairport-sync manager**
+
    - Dynamic configuration generation based on hardware profile
    - Process lifecycle management (start/stop/restart)
    - Health monitoring and auto-recovery
    - Log aggregation
 
 2. **Audio output router**
+
    - Detect and prioritize audio outputs
    - Handle output switching
    - Volume control abstraction
@@ -270,25 +275,30 @@ describe('HardwareDetector', () => {
 
 ```typescript
 // packages/receiver-core/src/airplay/config-generator.ts
-function generateShairportConfig(profile: HardwareProfile, userConfig: UserConfig): string {
+function generateShairportConfig(
+  capabilities: HardwareCapabilities,
+  userConfig: UserConfig
+): string {
   const config = {
     general: {
       name: userConfig.deviceName ?? `AirSync-${getShortId()}`,
-      interpolation: profile.id === 'minimal' ? 'basic' : 'soxr',
-      output_backend: detectBestBackend(profile),
+      interpolation: "soxr", // Always use high-quality resampling
+      output_backend: "alsa",
     },
     alsa: {
-      output_device: profile.preferredAudioDevice,
-      audio_backend_buffer_desired_length_in_seconds: 
-        profile.id === 'minimal' ? 0.15 : 0.1,
+      output_device: capabilities.preferredOutput,
+      audio_backend_buffer_desired_length_in_seconds: 0.1,
     },
     metadata: {
-      enabled: 'yes',
-      include_cover_art: profile.ramMB > 512 ? 'yes' : 'no',
-      pipe_name: '/tmp/shairport-sync-metadata',
-    }
+      enabled: "yes",
+      include_cover_art: "yes",
+      pipe_name: "/tmp/shairport-sync-metadata",
+    },
+    sessioncontrol: {
+      session_timeout: 20,
+    },
   };
-  
+
   return toToml(config);
 }
 ```
@@ -297,32 +307,36 @@ function generateShairportConfig(profile: HardwareProfile, userConfig: UserConfi
 
 ```typescript
 // packages/receiver-core/tests/integration/airplay/receiver.test.ts
-describe('AirPlay Receiver', () => {
-  it('starts shairport-sync with correct configuration', async () => {
-    const receiver = new AirPlayReceiver(minimalProfile);
+describe("AirPlay Receiver", () => {
+  it("starts shairport-sync with high-quality configuration", async () => {
+    const caps = await detectHardware();
+    const receiver = new AirPlayReceiver(caps);
     await receiver.start();
-    
-    const config = await fs.readFile('/etc/shairport-sync.conf', 'utf-8');
-    expect(config).toContain('interpolation = "basic"');
+
+    const config = await fs.readFile("/etc/shairport-sync.conf", "utf-8");
+    expect(config).toContain('interpolation = "soxr"');
+    expect(config).toContain('include_cover_art = "yes"');
   });
 
-  it('advertises via mDNS with correct metadata', async () => {
-    const receiver = new AirPlayReceiver(standardProfile);
+  it("advertises via mDNS with correct metadata", async () => {
+    const caps = await detectHardware();
+    const receiver = new AirPlayReceiver(caps);
     await receiver.start();
-    
-    const services = await discoverMdns('_raop._tcp');
+
+    const services = await discoverMdns("_raop._tcp");
     expect(services).toContainEqual(
-      expect.objectContaining({ name: expect.stringContaining('AirSync') })
+      expect.objectContaining({ name: expect.stringContaining("AirSync") })
     );
   });
 
-  it('recovers from shairport-sync crash', async () => {
-    const receiver = new AirPlayReceiver(standardProfile);
+  it("recovers from shairport-sync crash", async () => {
+    const caps = await detectHardware();
+    const receiver = new AirPlayReceiver(caps);
     await receiver.start();
-    
-    await killProcess('shairport-sync');
+
+    await killProcess("shairport-sync");
     await sleep(2000);
-    
+
     expect(await receiver.isHealthy()).toBe(true);
   });
 });
@@ -337,11 +351,13 @@ describe('AirPlay Receiver', () => {
 **Features**:
 
 1. **Device Discovery**
+
    - Bonjour/mDNS scanning for `_airsync._tcp`
-   - Display device name, hardware profile, version
+   - Display device name, board ID, version
    - Connection status monitoring
 
 2. **Pairing Flow**
+
    - Generate pairing code on device
    - Secure WebSocket connection establishment
    - Certificate pinning for security
@@ -359,12 +375,12 @@ describe('AirPlay Receiver', () => {
 class DeviceScanner: ObservableObject {
     @Published var devices: [DiscoveredDevice] = []
     @Published var isScanning = false
-    
+
     private let browser = NWBrowser(
         for: .bonjour(type: "_airsync._tcp", domain: nil),
         using: .tcp
     )
-    
+
     func startScanning() {
         isScanning = true
         browser.browseResultsChangedHandler = { [weak self] results, changes in
@@ -383,17 +399,17 @@ class DeviceScannerTests: XCTestCase {
     func testDiscoveryFindsLocalDevices() async throws {
         let scanner = DeviceScanner()
         scanner.startScanning()
-        
+
         try await Task.sleep(for: .seconds(3))
-        
+
         XCTAssertFalse(scanner.devices.isEmpty)
         XCTAssertTrue(scanner.devices.allSatisfy { $0.name.hasPrefix("AirSync") })
     }
-    
+
     func testPairingEstablishesSecureConnection() async throws {
         let device = try await discoverFirstDevice()
         let connection = try await device.pair(code: "123456")
-        
+
         XCTAssertTrue(connection.isSecure)
         XCTAssertNotNil(connection.certificate)
     }
@@ -453,28 +469,29 @@ class DeviceScannerTests: XCTestCase {
 ```typescript
 // packages/receiver-core/src/calibration/chirp-generator.ts
 interface ChirpConfig {
-  startFreq: 2000,      // Hz - above most ambient noise
-  endFreq: 8000,        // Hz - sweep range
-  duration: 50,         // ms - short for precision
-  repetitions: 5,       // Multiple chirps for averaging
-  intervalMs: 500,      // Gap between chirps
+  startFreq: 2000; // Hz - above most ambient noise
+  endFreq: 8000; // Hz - sweep range
+  duration: 50; // ms - short for precision
+  repetitions: 5; // Multiple chirps for averaging
+  intervalMs: 500; // Gap between chirps
 }
 
 function generateChirp(config: ChirpConfig): Float32Array {
   const sampleRate = 48000;
-  const samples = Math.floor(sampleRate * config.duration / 1000);
+  const samples = Math.floor((sampleRate * config.duration) / 1000);
   const buffer = new Float32Array(samples);
-  
+
   for (let i = 0; i < samples; i++) {
     const t = i / sampleRate;
-    const freq = config.startFreq + 
+    const freq =
+      config.startFreq +
       (config.endFreq - config.startFreq) * (t / (config.duration / 1000));
     buffer[i] = Math.sin(2 * Math.PI * freq * t);
   }
-  
+
   // Apply Hann window to reduce spectral leakage
-  applyWindow(buffer, 'hann');
-  
+  applyWindow(buffer, "hann");
+
   return buffer;
 }
 ```
@@ -492,7 +509,7 @@ class LatencyDetector {
         // Normalize signals
         let normalizedRef = normalize(referenceChirp)
         let normalizedRec = normalize(recordedAudio)
-        
+
         // Cross-correlate using Accelerate framework
         var correlation = [Float](repeating: 0, count: recordedAudio.count)
         vDSP_conv(normalizedRec, 1,
@@ -500,12 +517,12 @@ class LatencyDetector {
                   &correlation, 1,
                   vDSP_Length(recordedAudio.count),
                   vDSP_Length(referenceChirp.count))
-        
+
         // Find peak
         var maxVal: Float = 0
         var maxIdx: vDSP_Length = 0
         vDSP_maxvi(correlation, 1, &maxVal, &maxIdx, vDSP_Length(correlation.count))
-        
+
         // Convert sample offset to time
         let offsetSamples = Int(maxIdx) - referenceChirp.count
         return TimeInterval(offsetSamples) / TimeInterval(sampleRate)
@@ -517,18 +534,22 @@ class LatencyDetector {
 
 ```typescript
 // packages/receiver-core/tests/unit/calibration/chirp.test.ts
-describe('ChirpGenerator', () => {
-  it('generates frequency sweep with correct parameters', () => {
-    const chirp = generateChirp({ startFreq: 2000, endFreq: 8000, duration: 50 });
+describe("ChirpGenerator", () => {
+  it("generates frequency sweep with correct parameters", () => {
+    const chirp = generateChirp({
+      startFreq: 2000,
+      endFreq: 8000,
+      duration: 50,
+    });
     const spectrum = analyzeSpectrum(chirp);
-    
+
     expect(spectrum.peakFrequencies).toContain(2000);
     expect(spectrum.peakFrequencies).toContain(8000);
   });
 
-  it('applies window function to reduce artifacts', () => {
+  it("applies window function to reduce artifacts", () => {
     const chirp = generateChirp(defaultConfig);
-    
+
     // First and last samples should be near zero (windowed)
     expect(Math.abs(chirp[0])).toBeLessThan(0.01);
     expect(Math.abs(chirp[chirp.length - 1])).toBeLessThan(0.01);
@@ -536,27 +557,27 @@ describe('ChirpGenerator', () => {
 });
 
 // packages/receiver-core/tests/integration/calibration/e2e.test.ts
-describe('Calibration E2E', () => {
-  it('measures simulated 50ms latency accurately', async () => {
+describe("Calibration E2E", () => {
+  it("measures simulated 50ms latency accurately", async () => {
     const receiver = await createTestReceiver();
     const iosSimulator = await createIOSSimulator();
-    
+
     // Inject 50ms of delay in audio path
     receiver.setAudioDelay(50);
-    
+
     const result = await iosSimulator.runCalibration(receiver);
-    
+
     expect(result.measuredLatencyMs).toBeCloseTo(50, 5); // ±5ms tolerance
   });
 
-  it('handles noisy environments gracefully', async () => {
+  it("handles noisy environments gracefully", async () => {
     const receiver = await createTestReceiver();
     const iosSimulator = await createIOSSimulator({
-      ambientNoise: 'moderate_room'
+      ambientNoise: "moderate_room",
     });
-    
+
     const result = await iosSimulator.runCalibration(receiver);
-    
+
     expect(result.confidence).toBeGreaterThan(0.8);
   });
 });
@@ -605,7 +626,7 @@ CMD ["/bin/bash"]
 
 ```yaml
 # firmware/docker/docker-compose.yml
-version: '3.8'
+version: "3.8"
 
 services:
   pi-emulator:
@@ -615,8 +636,8 @@ services:
       - ../../packages:/app/packages
       - ./mock-hardware:/sys/class
     ports:
-      - "5000:5000"   # API
-      - "5353:5353"   # mDNS
+      - "5000:5000" # API
+      - "5353:5353" # mDNS
     networks:
       - airsync
 
@@ -674,9 +695,9 @@ jobs:
       - uses: pnpm/action-setup@v2
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'pnpm'
-      
+          node-version: "20"
+          cache: "pnpm"
+
       - run: pnpm install
       - run: pnpm test:unit
       - run: pnpm test:integration
@@ -685,26 +706,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
-      
+
       - name: Start Pi Emulator
         run: |
           docker-compose -f firmware/docker/docker-compose.yml up -d
           sleep 30  # Wait for emulator to be ready
-      
+
       - name: Run E2E Tests
         run: |
           docker-compose -f firmware/docker/docker-compose.yml \
             run test-runner pnpm test:e2e
-      
+
       - name: Collect Logs
         if: failure()
         run: docker-compose logs > e2e-logs.txt
-      
+
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
@@ -712,20 +733,19 @@ jobs:
           path: e2e-logs.txt
 ```
 
-
 ## Testing Strategy
 
 Following Google's test pyramid (80/15/5):
 
-| Layer | Coverage | Focus |
-|-------|----------|-------|
-| **Unit** (80%) | Individual functions, classes | Hardware detection, config generation, chirp algorithm |
-| **Integration** (15%) | Component interactions | Shairport-sync wrapper, WebSocket API, mDNS |
-| **E2E** (5%) | Full system | Installation, update flow, calibration |
+| Layer                 | Coverage                      | Focus                                                  |
+| --------------------- | ----------------------------- | ------------------------------------------------------ |
+| **Unit** (80%)        | Individual functions, classes | Hardware detection, config generation, chirp algorithm |
+| **Integration** (15%) | Component interactions        | Shairport-sync wrapper, WebSocket API, mDNS            |
+| **E2E** (5%)          | Full system                   | Installation, update flow, calibration                 |
 
 ### The Beyoncé Rule
 
-> *"If you liked it then you should have put a test on it."*
+> _"If you liked it then you should have put a test on it."_
 
 Every feature that ships **must** have:
 
@@ -754,8 +774,10 @@ Phase 1 is complete when:
 
 - [ ] Pi emulator runs locally with `docker-compose up`
 - [ ] Installation script succeeds on fresh Debian Bookworm
-- [ ] Hardware detection correctly identifies Pi Zero 2 W, Pi 4, Pi 5
-- [ ] AirPlay 2 receiver appears in iOS Control Center
+- [ ] Hardware detection correctly identifies capable systems (Pi 4 1GB+, Pi 5)
+- [ ] Installation fails gracefully on unsupported hardware (Pi Zero W, Pi Zero 2 W, Pi 3)
+- [ ] AirPlay 2 receiver appears in iOS Control Center with high-quality audio
+- [ ] Multi-room sync and stereo pairing work out of the box
 - [ ] iOS app discovers and pairs with receiver
 - [ ] Latency calibration measures delay within ±5ms accuracy
 - [ ] All tests pass in CI (unit, integration, E2E)
@@ -763,22 +785,28 @@ Phase 1 is complete when:
 
 ---
 
+## Multi-Room Audio Support
+
+**Multi-room sync and stereo pairing are natively supported** through shairport-sync's AirPlay 2 implementation. Users can create speaker groups and stereo pairs directly from iOS Control Center without any additional configuration.
+
+This includes:
+
+- **Multi-room sync**: Play the same audio on multiple AirSync receivers simultaneously
+- **Stereo pairing**: Pair two receivers as left/right channels
+- **Volume control**: Independent or grouped volume adjustment
+- **Seamless handoff**: Move audio between rooms
+
+No additional Phase 1 work is required for these features - they work out of the box via AirPlay 2.
+
+---
+
 ## Future Considerations (Not in Scope)
 
-These are explicitly **out of scope** for Phase 1 but inform architectural decisions:
+These features are explicitly **out of scope** for Phase 1 but the architecture is designed to support future extensions through:
 
-- Multi-room sync / stereo pairing
-- Dolby Atmos spatial audio
-- Voice assistant integration
-- Web dashboard UI
-- Local TTS/STT processing
-
-The Phase 1 architecture supports these through:
-
-- Hardware profile system (features scale with capability)
-- Modular package structure (easy to add `voice-assistant/` later)
+- Modular package structure (easy to add new modules later)
 - Extensible protocol definitions
-- Cluster-ready discovery layer
+- Hardware capability detection system (can be expanded for new features)
 
 ---
 
@@ -786,7 +814,7 @@ The Phase 1 architecture supports these through:
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/airsync.git
+git clone https://github.com/JackDarnell/airsync.git
 cd airsync
 
 # Install dependencies

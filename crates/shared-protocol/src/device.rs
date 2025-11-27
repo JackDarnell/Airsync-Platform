@@ -18,79 +18,15 @@ pub enum AudioOutput {
     Headphone,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct FeatureSet {
-    pub airplay: bool,
-    pub web_ui: bool,
-    pub local_tts: bool,
-    pub calibration: bool,
-}
+/// Minimum requirements for AirPlay 2 receiver
+pub const MIN_CPU_CORES: usize = 4;
+pub const MIN_RAM_MB: usize = 1024; // AirPlay 2 requires at least 1GB for reliable performance
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct HardwareProfile {
-    pub id: ProfileId,
-    pub min_cores: usize,
-    pub min_ram_mb: usize,
-    pub features: FeatureSet,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum ProfileId {
-    Minimal,
-    Standard,
-    Enhanced,
-}
-
-pub const HARDWARE_PROFILES: &[HardwareProfile] = &[
-    HardwareProfile {
-        id: ProfileId::Minimal,
-        min_cores: 4,
-        min_ram_mb: 256,
-        features: FeatureSet {
-            airplay: true,
-            web_ui: false,
-            local_tts: false,
-            calibration: true,
-        },
-    },
-    HardwareProfile {
-        id: ProfileId::Standard,
-        min_cores: 4,
-        min_ram_mb: 1024,
-        features: FeatureSet {
-            airplay: true,
-            web_ui: true,
-            local_tts: false,
-            calibration: true,
-        },
-    },
-    HardwareProfile {
-        id: ProfileId::Enhanced,
-        min_cores: 4,
-        min_ram_mb: 4096,
-        features: FeatureSet {
-            airplay: true,
-            web_ui: true,
-            local_tts: true,
-            calibration: true,
-        },
-    },
-];
-
-pub fn select_hardware_profile(capabilities: &HardwareCapabilities) -> &'static HardwareProfile {
-    let mut profiles: Vec<_> = HARDWARE_PROFILES.iter().collect();
-    profiles.sort_by(|a, b| b.min_ram_mb.cmp(&a.min_ram_mb));
-
-    for profile in profiles {
-        if capabilities.cpu_cores >= profile.min_cores
-            && capabilities.ram_mb >= profile.min_ram_mb
-        {
-            return profile;
-        }
-    }
-
-    &HARDWARE_PROFILES[0]
+/// Check if hardware meets minimum requirements to run AirSync
+pub fn is_capable(capabilities: &HardwareCapabilities) -> bool {
+    capabilities.cpu_cores >= MIN_CPU_CORES
+        && capabilities.ram_mb >= MIN_RAM_MB
+        && !capabilities.audio_outputs.is_empty()
 }
 
 #[cfg(test)]
@@ -108,42 +44,44 @@ mod tests {
     }
 
     #[test]
-    fn selects_minimal_profile_for_low_ram() {
-        let caps = create_capabilities(256, 4);
-        let profile = select_hardware_profile(&caps);
-        assert_eq!(profile.id, ProfileId::Minimal);
-        assert!(!profile.features.web_ui);
-    }
-
-    #[test]
-    fn selects_standard_profile_for_1gb_ram() {
+    fn accepts_raspberry_pi_4_1gb() {
         let caps = create_capabilities(1024, 4);
-        let profile = select_hardware_profile(&caps);
-        assert_eq!(profile.id, ProfileId::Standard);
-        assert!(profile.features.web_ui);
-        assert!(!profile.features.local_tts);
+        assert!(is_capable(&caps));
     }
 
     #[test]
-    fn selects_enhanced_profile_for_4gb_ram() {
-        let caps = create_capabilities(4096, 4);
-        let profile = select_hardware_profile(&caps);
-        assert_eq!(profile.id, ProfileId::Enhanced);
-        assert!(profile.features.web_ui);
-        assert!(profile.features.local_tts);
-    }
-
-    #[test]
-    fn falls_back_to_minimal_for_insufficient_resources() {
-        let caps = create_capabilities(128, 4);
-        let profile = select_hardware_profile(&caps);
-        assert_eq!(profile.id, ProfileId::Minimal);
-    }
-
-    #[test]
-    fn selects_highest_profile_that_fits() {
+    fn accepts_raspberry_pi_4_2gb() {
         let caps = create_capabilities(2048, 4);
-        let profile = select_hardware_profile(&caps);
-        assert_eq!(profile.id, ProfileId::Standard);
+        assert!(is_capable(&caps));
+    }
+
+    #[test]
+    fn accepts_raspberry_pi_5_4gb() {
+        let caps = create_capabilities(4096, 4);
+        assert!(is_capable(&caps));
+    }
+
+    #[test]
+    fn rejects_raspberry_pi_zero_2w_insufficient_ram() {
+        let caps = create_capabilities(512, 4); // Has 4 cores but only 512MB RAM
+        assert!(!is_capable(&caps));
+    }
+
+    #[test]
+    fn rejects_raspberry_pi_zero_w_insufficient_cores_and_ram() {
+        let caps = create_capabilities(512, 1); // Only 1 core and 512MB RAM
+        assert!(!is_capable(&caps));
+    }
+
+    #[test]
+    fn rejects_system_without_audio() {
+        let caps = HardwareCapabilities {
+            cpu_cores: 4,
+            ram_mb: 2048,
+            board_id: "test".to_string(),
+            audio_outputs: vec![], // No audio outputs
+            preferred_output: AudioOutput::Headphone,
+        };
+        assert!(!is_capable(&caps));
     }
 }

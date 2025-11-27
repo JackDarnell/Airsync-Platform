@@ -1,6 +1,6 @@
 #!/bin/bash
 # AirSync One-Command Installer
-# curl -sSL https://raw.githubusercontent.com/yourusername/airsync/main/installer/scripts/install.sh | bash
+# curl -sSL https://raw.githubusercontent.com/JackDarnell/airsync/main/installer/scripts/install.sh | bash
 
 set -e
 
@@ -185,7 +185,7 @@ install_airsync() {
             cd "$INSTALL_DIR"
             git pull
         else
-            git clone https://github.com/yourusername/airsync.git "$INSTALL_DIR"
+            git clone https://github.com/JackDarnell/airsync.git "$INSTALL_DIR"
             cd "$INSTALL_DIR"
         fi
     fi

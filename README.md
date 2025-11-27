@@ -11,6 +11,7 @@ Built in **Rust** for maximum performance, minimal memory footprint, and memory 
 The project is in its initial setup phase. We are following strict TDD principles where every component is tested before implementation.
 
 ### What's Complete
+
 - ✅ Phase 1 specification document
 - ✅ Cargo workspace structure
 - ✅ Shared protocol types (device, messages, calibration)
@@ -33,6 +34,7 @@ The project is in its initial setup phase. We are following strict TDD principle
 - ✅ CLI tool for hardware detection (`detect-hardware`)
 
 ### What's Next
+
 - ⏳ Test installer on real Raspberry Pi hardware
 - ⏳ Shairport-sync process manager (start/stop/monitor/recover)
 - ⏳ Configuration generator with interactive prompts
@@ -43,10 +45,11 @@ The project is in its initial setup phase. We are following strict TDD principle
 ### One-Command Install (Raspberry Pi / Linux)
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/yourusername/airsync/main/installer/scripts/install.sh | sudo bash
+curl -sSL https://raw.githubusercontent.com/JackDarnell/airsync/main/installer/scripts/install.sh | sudo bash
 ```
 
 This automatically:
+
 - ✅ Detects your hardware (Pi Zero 2 W, Pi 4, Pi 5, etc.)
 - ✅ Installs all dependencies (Rust, build tools, ALSA, Avahi)
 - ✅ Builds and installs shairport-sync
@@ -71,7 +74,7 @@ See [installer/README.md](installer/README.md) for troubleshooting and manual in
 
 ```bash
 # Clone repository
-git clone https://github.com/yourusername/airsync.git
+git clone https://github.com/JackDarnell/airsync.git
 cd airsync
 
 # Build all crates
@@ -147,6 +150,7 @@ cargo tarpaulin --out Html
 ### Test Organization
 
 Tests follow the 80/15/5 pyramid:
+
 - **Unit tests (80%)**: Embedded in source files with `#[cfg(test)]` modules
 - **Integration tests (15%)**: In `tests/` directory (coming soon)
 - **E2E tests (5%)**: Full system tests with Docker Pi emulator (coming soon)
@@ -276,6 +280,7 @@ cargo build --release --target aarch64-unknown-linux-gnu
 ### Hardware Detection (✅ Complete)
 
 Runtime detection of device capabilities drives feature availability:
+
 - **CPU cores**: Parsed from `/proc/cpuinfo`
 - **RAM**: Parsed from `/proc/meminfo`
 - **Board ID**: Identifies Pi Zero 2 W, Pi 4, Pi 5 from model string
@@ -287,6 +292,7 @@ Runtime detection of device capabilities drives feature availability:
 ### AirPlay 2 Receiver (Partial - Config Gen Complete)
 
 Wraps shairport-sync with:
+
 - ✅ **Dynamic configuration** based on hardware profile
   - Profile-aware interpolation (basic/soxr)
   - RAM-aware buffer sizing
@@ -300,6 +306,7 @@ Wraps shairport-sync with:
 ### Latency Calibration (Coming Soon)
 
 iOS app measures speaker-to-microphone delay:
+
 - Chirp-based audio signal (2kHz-8kHz sweep)
 - Cross-correlation algorithm for precise timing
 - ±5ms accuracy target
@@ -318,6 +325,7 @@ See [PHASE_1_SPECIFICATION.md](./PHASE_1_SPECIFICATION.md) for detailed technica
 ## CI/CD
 
 Tests run automatically on every push:
+
 - Unit and integration tests on Ubuntu latest
 - E2E tests in QEMU ARM64 emulator
 - 80%+ code coverage required on critical paths
