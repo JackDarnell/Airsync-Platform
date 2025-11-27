@@ -42,15 +42,32 @@ The project is in its initial setup phase. We are following strict TDD principle
 
 ## Installation
 
-### Offline Installation (Recommended for Testing)
+### One-Command Install (Online)
 
-For local testing or offline installation:
+The fastest way to install on a Raspberry Pi with internet:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/JackDarnell/Airsync-Platform/main/installer/scripts/install.sh | sudo bash
+```
+
+This automatically:
+- ✅ Downloads source from GitHub
+- ✅ Detects your hardware (Pi 4 1GB+, Pi 5, etc.)
+- ✅ Installs all dependencies (Rust, build tools, ALSA, Avahi)
+- ✅ Builds and installs shairport-sync
+- ✅ Builds and installs AirSync daemon
+- ✅ Generates optimized configuration
+- ✅ Sets up systemd service (auto-start on boot)
+
+Takes ~5-10 minutes. After installation, your device appears in iOS Control Center!
+
+### Offline Installation (No Internet Required)
+
+For offline installation or local testing:
 
 ```bash
 # On your Mac/Linux machine:
 ./installer/scripts/package-for-pi.sh
-
-# This creates: airsync-offline-installer.tar.gz
 
 # Copy to your Raspberry Pi:
 scp airsync-offline-installer.tar.gz pi@raspberrypi.local:~/
@@ -59,24 +76,6 @@ scp airsync-offline-installer.tar.gz pi@raspberrypi.local:~/
 tar -xzf airsync-offline-installer.tar.gz
 cd airsync
 sudo SOURCE_DIR=$PWD ./install.sh
-```
-
-This automatically:
-
-- ✅ Detects your hardware (Pi 4 1GB+, Pi 5, etc.)
-- ✅ Installs all dependencies (Rust, build tools, ALSA, Avahi)
-- ✅ Builds and installs shairport-sync
-- ✅ Builds and installs AirSync daemon from bundled source
-- ✅ Generates optimized configuration
-- ✅ Sets up systemd service (auto-start on boot)
-
-Takes ~5-10 minutes. After installation, your device appears in iOS Control Center!
-
-### One-Command Install (Future - requires GitHub)
-
-```bash
-# This will work once the repo is published:
-curl -sSL https://raw.githubusercontent.com/JackDarnell/airsync/main/installer/scripts/install.sh | sudo bash
 ```
 
 See [installer/README.md](installer/README.md) for troubleshooting and manual installation.

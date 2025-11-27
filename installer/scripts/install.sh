@@ -185,7 +185,8 @@ install_airsync() {
     # 1. Development mode (/app/Cargo.toml exists)
     # 2. Bundled source directory (SOURCE_DIR set)
     # 3. Bundled source archive (SOURCE_ARCHIVE set)
-    # 4. Error - no source available
+    # 4. Existing installation at /opt/airsync
+    # 5. Download from GitHub (requires internet)
 
     if [ -f "/app/Cargo.toml" ]; then
         echo "Development mode: using local source at /app"
@@ -202,15 +203,20 @@ install_airsync() {
         echo "Using existing installation at $INSTALL_DIR"
         cd "$INSTALL_DIR"
     else
-        echo -e "${RED}Error: No AirSync source code found${NC}"
-        echo ""
-        echo "Please provide source code using one of these methods:"
-        echo "  1. Set SOURCE_DIR=/path/to/airsync"
-        echo "  2. Set SOURCE_ARCHIVE=/path/to/airsync.tar.gz"
-        echo "  3. Extract source to $INSTALL_DIR before running installer"
-        echo ""
-        echo "For offline installation, download the release tarball from GitHub"
-        exit 1
+        # No local source found - download from GitHub
+        echo "No local source found, downloading from GitHub..."
+
+        if [ -d "$INSTALL_DIR" ]; then
+            echo "Updating existing installation..."
+            cd "$INSTALL_DIR"
+            git pull
+        else
+            echo "Cloning AirSync repository..."
+            git clone https://github.com/JackDarnell/Airsync-Platform.git "$INSTALL_DIR"
+            cd "$INSTALL_DIR"
+        fi
+
+        echo -e "${GREEN}✓${NC} Source downloaded from GitHub"
     fi
 
     # Verify Cargo.toml exists

@@ -58,6 +58,14 @@ else
     test_fail "Installer doesn't check for source before building"
 fi
 
+# Test 4: Installer should have GitHub fallback for online installs
+echo "Test 4: Installer can download from GitHub as fallback"
+if grep -q "git clone.*Airsync-Platform" ../scripts/install.sh; then
+    test_pass "Installer has GitHub download fallback"
+else
+    test_fail "Installer missing GitHub download fallback"
+fi
+
 echo ""
 echo "Test Results:"
 echo "============="

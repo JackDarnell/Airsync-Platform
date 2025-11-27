@@ -1,19 +1,38 @@
 # AirSync Installer
 
-One-command installation for headless Raspberry Pi systems.
+One-command installation for headless Raspberry Pi systems, with support for both online and offline installation.
 
-## Quick Install
+## Online Install (Recommended)
+
+Install directly from GitHub (requires internet):
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/JackDarnell/airsync/main/installer/scripts/install.sh | sudo bash
+curl -sSL https://raw.githubusercontent.com/JackDarnell/Airsync-Platform/main/installer/scripts/install.sh | sudo bash
 ```
 
 Or download and inspect first:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/JackDarnell/airsync/main/installer/scripts/install.sh > install.sh
+curl -sSL https://raw.githubusercontent.com/JackDarnell/Airsync-Platform/main/installer/scripts/install.sh > install.sh
 less install.sh
 sudo bash install.sh
+```
+
+## Offline Install
+
+For systems without internet access:
+
+```bash
+# On your computer with internet:
+./installer/scripts/package-for-pi.sh
+
+# Copy to Pi:
+scp airsync-offline-installer.tar.gz pi@raspberrypi.local:~/
+
+# On the Pi:
+tar -xzf airsync-offline-installer.tar.gz
+cd airsync
+sudo SOURCE_DIR=$PWD ./install.sh
 ```
 
 ## What It Does
