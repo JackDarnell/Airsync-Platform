@@ -42,22 +42,42 @@ The project is in its initial setup phase. We are following strict TDD principle
 
 ## Installation
 
-### One-Command Install (Raspberry Pi / Linux)
+### Offline Installation (Recommended for Testing)
+
+For local testing or offline installation:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/JackDarnell/airsync/main/installer/scripts/install.sh | sudo bash
+# On your Mac/Linux machine:
+./installer/scripts/package-for-pi.sh
+
+# This creates: airsync-offline-installer.tar.gz
+
+# Copy to your Raspberry Pi:
+scp airsync-offline-installer.tar.gz pi@raspberrypi.local:~/
+
+# On the Raspberry Pi:
+tar -xzf airsync-offline-installer.tar.gz
+cd airsync
+sudo SOURCE_DIR=$PWD ./install.sh
 ```
 
 This automatically:
 
-- ✅ Detects your hardware (Pi Zero 2 W, Pi 4, Pi 5, etc.)
+- ✅ Detects your hardware (Pi 4 1GB+, Pi 5, etc.)
 - ✅ Installs all dependencies (Rust, build tools, ALSA, Avahi)
 - ✅ Builds and installs shairport-sync
-- ✅ Builds and installs AirSync daemon
+- ✅ Builds and installs AirSync daemon from bundled source
 - ✅ Generates optimized configuration
 - ✅ Sets up systemd service (auto-start on boot)
 
 Takes ~5-10 minutes. After installation, your device appears in iOS Control Center!
+
+### One-Command Install (Future - requires GitHub)
+
+```bash
+# This will work once the repo is published:
+curl -sSL https://raw.githubusercontent.com/JackDarnell/airsync/main/installer/scripts/install.sh | sudo bash
+```
 
 See [installer/README.md](installer/README.md) for troubleshooting and manual installation.
 

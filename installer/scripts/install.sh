@@ -16,6 +16,12 @@ INSTALL_DIR="/opt/airsync"
 SERVICE_USER="airsync"
 CONFIG_DIR="/etc/airsync"
 
+# Bundled source mode - installer can work offline if source is provided
+# Set SOURCE_ARCHIVE environment variable to point to airsync source tarball
+# or SOURCE_DIR to point to extracted source directory
+SOURCE_ARCHIVE="${SOURCE_ARCHIVE:-}"
+SOURCE_DIR="${SOURCE_DIR:-}"
+
 echo -e "${GREEN}╔════════════════════════════════════════╗${NC}"
 echo -e "${GREEN}║     AirSync Installer                  ║${NC}"
 echo -e "${GREEN}║     One-command AirPlay 2 receiver     ║${NC}"
@@ -124,7 +130,8 @@ install_shairport_sync() {
     # Detect if systemd is available
     local SYSTEMD_FLAG=""
     if [ -d "/run/systemd/system" ]; then
-        SYSTEMD_FLAG="--with-systemd"
+        # Explicitly set systemd unit directory to avoid install errors
+        SYSTEMD_FLAG="--with-systemd --with-systemdsystemunitdir=/lib/systemd/system"
         echo "Systemd detected, enabling systemd integration"
     else
         echo "No systemd detected, building without systemd support"
@@ -174,20 +181,42 @@ install_airsync() {
     echo ""
     echo "Building AirSync daemon..."
 
-    # Detect if we're in development mode (source already present)
+    # Determine source location (priority order):
+    # 1. Development mode (/app/Cargo.toml exists)
+    # 2. Bundled source directory (SOURCE_DIR set)
+    # 3. Bundled source archive (SOURCE_ARCHIVE set)
+    # 4. Error - no source available
+
     if [ -f "/app/Cargo.toml" ]; then
-        echo "Development mode: using local source"
+        echo "Development mode: using local source at /app"
         cd /app
+    elif [ -n "$SOURCE_DIR" ] && [ -d "$SOURCE_DIR" ] && [ -f "$SOURCE_DIR/Cargo.toml" ]; then
+        echo "Using bundled source directory: $SOURCE_DIR"
+        cd "$SOURCE_DIR"
+    elif [ -n "$SOURCE_ARCHIVE" ] && [ -f "$SOURCE_ARCHIVE" ]; then
+        echo "Extracting bundled source archive: $SOURCE_ARCHIVE"
+        mkdir -p "$INSTALL_DIR"
+        tar -xzf "$SOURCE_ARCHIVE" -C "$INSTALL_DIR" --strip-components=1
+        cd "$INSTALL_DIR"
+    elif [ -d "$INSTALL_DIR" ] && [ -f "$INSTALL_DIR/Cargo.toml" ]; then
+        echo "Using existing installation at $INSTALL_DIR"
+        cd "$INSTALL_DIR"
     else
-        # Production: clone from GitHub
-        if [ -d "$INSTALL_DIR" ]; then
-            echo "Updating existing installation..."
-            cd "$INSTALL_DIR"
-            git pull
-        else
-            git clone https://github.com/JackDarnell/airsync.git "$INSTALL_DIR"
-            cd "$INSTALL_DIR"
-        fi
+        echo -e "${RED}Error: No AirSync source code found${NC}"
+        echo ""
+        echo "Please provide source code using one of these methods:"
+        echo "  1. Set SOURCE_DIR=/path/to/airsync"
+        echo "  2. Set SOURCE_ARCHIVE=/path/to/airsync.tar.gz"
+        echo "  3. Extract source to $INSTALL_DIR before running installer"
+        echo ""
+        echo "For offline installation, download the release tarball from GitHub"
+        exit 1
+    fi
+
+    # Verify Cargo.toml exists
+    if [ ! -f "Cargo.toml" ]; then
+        echo -e "${RED}Error: Cargo.toml not found in source directory${NC}"
+        exit 1
     fi
 
     # Build release binary
