@@ -1,0 +1,42 @@
+# Rust
+target/
+Cargo.lock
+**/*.rs.bk
+*.pdb
+
+# Build outputs
+dist/
+build/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+logs/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.direnv/
+
+# Docker
+.docker/
+
+# Temporary files
+tmp/
+temp/
+
+# Coverage
+*.profraw
+*.profdata
+coverage/

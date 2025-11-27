@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  pi-zero-2w:
+    build: .
+    container_name: airsync-pi-simulator
+    volumes:
+      - ../../:/app
+      - ./mock-proc/cpuinfo:/proc/cpuinfo:ro
+      - ./mock-proc/meminfo:/proc/meminfo:ro
+    working_dir: /app
+    tty: true
+    stdin_open: true
+    command: /bin/bash -c "echo 'Pi Zero 2 W Simulator Ready' && exec bash"

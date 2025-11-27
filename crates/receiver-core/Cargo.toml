@@ -1,0 +1,15 @@
+[package]
+name = "airsync-receiver-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+airsync-shared-protocol = { path = "../shared-protocol" }
+tokio.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+
+[dev-dependencies]
