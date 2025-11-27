@@ -110,10 +110,74 @@ install_rust() {
     echo -e "${GREEN}✓${NC} Rust installed: $(cargo --version)"
 }
 
+# Helper function to install shairport-sync systemd service
+install_shairport_service() {
+    if [ ! -d "/run/systemd/system" ]; then
+        return  # Systemd not available
+    fi
+
+    if [ -f /lib/systemd/system/shairport-sync.service ]; then
+        return  # Service already installed
+    fi
+
+    echo ""
+    echo "Checking systemd service installation..."
+
+    # Try to find service file in multiple locations
+    local SERVICE_FILE=""
+    local SEARCH_PATHS=(
+        "/tmp/shairport-sync/scripts/shairport-sync.service"
+        "./scripts/shairport-sync.service"
+        "/usr/local/share/shairport-sync/scripts/shairport-sync.service"
+    )
+
+    for path in "${SEARCH_PATHS[@]}"; do
+        if [ -f "$path" ]; then
+            SERVICE_FILE="$path"
+            echo "Found service file at: $SERVICE_FILE"
+            break
+        fi
+    done
+
+    # If not found, download it
+    if [ -z "$SERVICE_FILE" ]; then
+        echo "Service file not found locally, downloading from GitHub..."
+        local CURRENT_DIR=$(pwd)
+        cd /tmp
+        rm -rf shairport-sync-service
+
+        if git clone --depth 1 --branch "$SHAIRPORT_VERSION" https://github.com/mikebrady/shairport-sync.git shairport-sync-service 2>/dev/null; then
+            SERVICE_FILE="/tmp/shairport-sync-service/scripts/shairport-sync.service"
+        else
+            echo -e "${YELLOW}Warning: Could not download shairport-sync service file${NC}"
+            cd "$CURRENT_DIR"
+            return 1
+        fi
+
+        cd "$CURRENT_DIR"
+    fi
+
+    # Install the service file
+    if [ -f "$SERVICE_FILE" ]; then
+        install -d /lib/systemd/system
+        install -m 0644 "$SERVICE_FILE" /lib/systemd/system/shairport-sync.service
+        systemctl daemon-reload 2>/dev/null || true
+        echo -e "${GREEN}✓${NC} Systemd service file installed"
+    else
+        echo -e "${YELLOW}Warning: Could not install shairport-sync.service${NC}"
+        return 1
+    fi
+
+    # Cleanup temporary download
+    rm -rf /tmp/shairport-sync-service 2>/dev/null || true
+}
+
 # Build and install shairport-sync
 install_shairport_sync() {
     if command -v shairport-sync &> /dev/null; then
         echo -e "${GREEN}✓${NC} shairport-sync already installed: $(shairport-sync -V)"
+        # Even if binary exists, ensure systemd service is installed
+        install_shairport_service
         return
     fi
 

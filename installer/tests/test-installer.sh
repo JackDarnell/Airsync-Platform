@@ -79,6 +79,19 @@ else
     test_pass "No fallback mode (direct install)"
 fi
 
+# Test 6: Installer should check for systemd service when shairport-sync exists
+echo "Test 6: Installer verifies systemd service when binary exists"
+if grep -q "shairport-sync already installed" ../scripts/install.sh; then
+    # Check if there's logic to verify/install systemd service even when binary exists
+    if grep -A 5 "shairport-sync already installed" ../scripts/install.sh | grep -q "install_shairport_service"; then
+        test_pass "Installer checks systemd service when binary exists"
+    else
+        test_fail "Installer skips systemd service check when binary exists"
+    fi
+else
+    test_pass "No early return for existing binary"
+fi
+
 echo ""
 echo "Test Results:"
 echo "============="
