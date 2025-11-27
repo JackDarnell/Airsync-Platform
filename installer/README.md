@@ -46,10 +46,27 @@ The installer automatically:
 5. ✅ **Builds shairport-sync with AirPlay 2 support** from source (latest stable)
 6. ✅ **Builds AirSync daemon** from source
 7. ✅ **Detects hardware** and generates optimal config
-8. ✅ **Sets up systemd services** (auto-start on boot)
-9. ✅ **Starts the receiver** immediately
+8. ✅ **Prompts you to select audio output device** (HDMI, headphone jack, USB, I2S DAC, etc.)
+9. ✅ **Sets up systemd services** (auto-start on boot)
+10. ✅ **Starts the receiver** immediately
 
 Takes ~5-10 minutes on Raspberry Pi Zero 2 W (first time).
+
+### Interactive Setup
+
+During installation, you'll be prompted to select your audio output device:
+```
+Available audio output devices:
+================================
+  1) hw:0,0
+     Headphones - bcm2835 Headphones
+  2) hw:1,0
+     vc4-hdmi - MAI PCM i2s-hifi-0
+
+Select audio output device [1-2] (default: 1):
+```
+
+Simply enter the number corresponding to your preferred output device.
 
 ## After Installation
 

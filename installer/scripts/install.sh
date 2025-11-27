@@ -364,6 +364,75 @@ install_airsync() {
     echo -e "${GREEN}✓${NC} AirSync daemon installed"
 }
 
+# Select audio output device
+select_audio_device() {
+    echo ""
+    echo "Detecting available audio devices..."
+
+    # Check if aplay is available
+    if ! command -v aplay &> /dev/null; then
+        echo -e "${YELLOW}Warning: aplay not found, using default device${NC}"
+        SELECTED_AUDIO_DEVICE="hw:0,0"
+        return
+    fi
+
+    # Get list of hardware devices from aplay -l (more reliable than -L)
+    local devices=()
+    local descriptions=()
+
+    # Parse aplay -l to get card/device numbers
+    while IFS= read -r line; do
+        if [[ "$line" =~ ^card\ ([0-9]+):.*device\ ([0-9]+): ]]; then
+            local card="${BASH_REMATCH[1]}"
+            local device="${BASH_REMATCH[2]}"
+            local hw_device="hw:${card},${device}"
+
+            # Get the device name/description
+            local desc=$(echo "$line" | sed 's/^card [0-9]*: \([^,]*\), device [0-9]*: \(.*\) \[.*/\1 - \2/')
+
+            devices+=("$hw_device")
+            descriptions+=("$desc")
+        fi
+    done < <(aplay -l 2>/dev/null)
+
+    # If no devices found, use default
+    if [ ${#devices[@]} -eq 0 ]; then
+        echo -e "${YELLOW}No audio devices detected, using default: hw:0,0${NC}"
+        SELECTED_AUDIO_DEVICE="hw:0,0"
+        return
+    fi
+
+    # Display menu
+    echo ""
+    echo "Available audio output devices:"
+    echo "================================"
+    local i=1
+    for idx in "${!devices[@]}"; do
+        echo "  $i) ${devices[$idx]}"
+        echo "     ${descriptions[$idx]}"
+        ((i++))
+    done
+    echo ""
+
+    # Prompt for selection
+    while true; do
+        read -p "Select audio output device [1-${#devices[@]}] (default: 1): " choice
+
+        # Default to first device if no input
+        if [[ -z "$choice" ]]; then
+            choice=1
+        fi
+
+        if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le ${#devices[@]} ]; then
+            SELECTED_AUDIO_DEVICE="${devices[$((choice-1))]}"
+            echo -e "${GREEN}✓${NC} Selected: $SELECTED_AUDIO_DEVICE (${descriptions[$((choice-1))]})"
+            break
+        else
+            echo -e "${RED}Invalid selection. Please enter a number between 1 and ${#devices[@]}${NC}"
+        fi
+    done
+}
+
 # Detect hardware and generate initial config
 setup_configuration() {
     echo ""
@@ -371,6 +440,9 @@ setup_configuration() {
 
     # Run hardware detection
     /usr/local/bin/airsync-detect > "$CONFIG_DIR/hardware.json" || true
+
+    # Select audio output device
+    select_audio_device
 
     # Generate shairport-sync config
     # This will be done by our daemon, but for now create basic config
@@ -382,7 +454,7 @@ general = {
 };
 
 alsa = {
-    output_device = "hw:0,0";
+    output_device = "$SELECTED_AUDIO_DEVICE";
     audio_backend_buffer_desired_length_in_seconds = 0.15;
 };
 

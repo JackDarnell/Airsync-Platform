@@ -118,6 +118,14 @@ else
     test_fail "Installer missing AirPlay 2 dependencies (libplist, libsodium, ffmpeg)"
 fi
 
+# Test 10: Installer should detect and allow selection of audio devices
+echo "Test 10: Installer detects and prompts for audio device selection"
+if grep -q "aplay -L\|list.*audio.*device\|select.*audio" ../scripts/install.sh; then
+    test_pass "Installer includes audio device detection/selection"
+else
+    test_fail "Installer doesn't detect/prompt for audio device selection"
+fi
+
 echo ""
 echo "Test Results:"
 echo "============="
