@@ -66,6 +66,19 @@ else
     test_fail "Installer missing GitHub download fallback"
 fi
 
+# Test 5: Installer should install systemd service even in fallback mode
+echo "Test 5: Installer handles systemd service in fallback mode"
+if grep -q "make install || {" ../scripts/install.sh; then
+    # Check if fallback block handles systemd service file
+    if grep -A 20 "make install || {" ../scripts/install.sh | grep -q "shairport-sync.service"; then
+        test_pass "Fallback mode installs systemd service file"
+    else
+        test_fail "Fallback mode doesn't install systemd service file"
+    fi
+else
+    test_pass "No fallback mode (direct install)"
+fi
+
 echo ""
 echo "Test Results:"
 echo "============="

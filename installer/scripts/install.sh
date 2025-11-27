@@ -148,12 +148,24 @@ install_shairport_sync() {
 
     make -j$(nproc)
     make install || {
-        # If make install fails (common in containers), try installing just the binary
-        echo -e "${YELLOW}Warning: Full install failed, installing binary only${NC}"
+        # If make install fails (common in containers), try installing manually
+        echo -e "${YELLOW}Warning: Full install failed, installing manually${NC}"
+
+        # Install binary
         install -m 0755 shairport-sync /usr/local/bin/
+
+        # Install config files
         install -d /etc
         install -m 0644 ./scripts/shairport-sync.conf /etc/shairport-sync.conf.sample
         [ -f /etc/shairport-sync.conf ] || cp ./scripts/shairport-sync.conf /etc/shairport-sync.conf
+
+        # Install systemd service if systemd is available
+        if [ -d "/run/systemd/system" ]; then
+            echo "Installing systemd service file..."
+            install -d /lib/systemd/system
+            install -m 0644 ./scripts/shairport-sync.service /lib/systemd/system/shairport-sync.service
+            systemctl daemon-reload 2>/dev/null || true
+        fi
     }
 
     cd /tmp
@@ -350,6 +362,16 @@ verify_installation() {
         ERRORS=$((ERRORS + 1))
     else
         echo -e "${GREEN}✓${NC} Service user created"
+    fi
+
+    # Check systemd service file (if systemd is available)
+    if [ -d "/run/systemd/system" ]; then
+        if [ ! -f /lib/systemd/system/shairport-sync.service ]; then
+            echo -e "${RED}✗${NC} Systemd service file not found"
+            ERRORS=$((ERRORS + 1))
+        else
+            echo -e "${GREEN}✓${NC} Systemd service file installed"
+        fi
     fi
 
     if [ $ERRORS -gt 0 ]; then
