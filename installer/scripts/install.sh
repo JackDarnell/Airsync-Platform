@@ -467,33 +467,34 @@ setup_configuration() {
     # Select audio output device
     select_audio_device
 
-    # Generate shairport-sync config
-    # This will be done by our daemon, but for now create basic config
-    cat > /etc/shairport-sync.conf <<EOF
-general = {
-    name = "AirSync";
-    interpolation = "basic";
-    output_backend = "alsa";
-};
+    # Start from the upstream sample config and uncomment the fields we care about
+    if [ -f /etc/shairport-sync.conf.sample ]; then
+        cp /etc/shairport-sync.conf.sample /etc/shairport-sync.conf
+    else
+        echo -e "${YELLOW}Warning: shairport-sync.conf.sample not found; creating empty config${NC}"
+        touch /etc/shairport-sync.conf
+    fi
 
-alsa = {
-    output_device = "$SELECTED_AUDIO_DEVICE";
-    audio_backend_buffer_desired_length_in_seconds = 0.15;
-};
+    # General settings
+    sed -i '/^general =/,/^};/ s|^//[[:space:]]*name = .*|    name = "AirSync";|' /etc/shairport-sync.conf
+    sed -i '/^general =/,/^};/ s|^//[[:space:]]*output_backend = .*|    output_backend = "alsa";|' /etc/shairport-sync.conf
+    sed -i '/^general =/,/^};/ s|^//[[:space:]]*interpolation = .*|    interpolation = "soxr";|' /etc/shairport-sync.conf
+    sed -i '/^general =/,/^};/ s|^//[[:space:]]*audio_backend_latency_offset_in_seconds = .*|    audio_backend_latency_offset_in_seconds = 0.0;|' /etc/shairport-sync.conf
 
-metadata = {
-    enabled = "yes";
-    include_cover_art = "no";
-    pipe_name = "/tmp/shairport-sync-metadata";
-};
+    # ALSA section
+    sed -i '/^alsa =/,/^};/ s|^//[[:space:]]*output_device = .*|    output_device = "'"$SELECTED_AUDIO_DEVICE"'";|' /etc/shairport-sync.conf
+    sed -i '/^alsa =/,/^};/ s|^//[[:space:]]*audio_backend_buffer_desired_length_in_seconds = .*|    audio_backend_buffer_desired_length_in_seconds = 0.1;|' /etc/shairport-sync.conf
 
-sessioncontrol = {
-    session_timeout = 20;
-};
-EOF
+    # Metadata section
+    sed -i '/^metadata =/,/^};/ s|^//[[:space:]]*enabled = .*|    enabled = "yes";|' /etc/shairport-sync.conf
+    sed -i '/^metadata =/,/^};/ s|^//[[:space:]]*include_cover_art = .*|    include_cover_art = "yes";|' /etc/shairport-sync.conf
+    sed -i '/^metadata =/,/^};/ s|^//[[:space:]]*pipe_name = .*|    pipe_name = "/tmp/shairport-sync-metadata";|' /etc/shairport-sync.conf
 
-    chown "$SERVICE_USER:$SERVICE_USER" /etc/shairport-sync.conf
-    echo -e "${GREEN}✓${NC} Configuration generated"
+    # Session control
+    sed -i '/^sessioncontrol =/,/^};/ s|^//[[:space:]]*session_timeout = .*|    session_timeout = 20;|' /etc/shairport-sync.conf
+
+    chown "$SERVICE_USER:$SERVICE_USER" /etc/shairport-sync.conf || true
+    echo -e "${GREEN}✓${NC} Configuration generated from sample"
 }
 
 # Set up systemd service
