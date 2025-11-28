@@ -438,7 +438,7 @@ select_audio_device() {
                 read -r -p "Select audio output device [1-${#devices[@]}] (default: 1): " choice < /dev/tty
             else
                 choice=""
-            }
+            fi
         fi
 
         # Default to first device if no input
