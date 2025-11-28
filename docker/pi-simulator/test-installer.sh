@@ -28,9 +28,24 @@ docker-compose run --rm pi-zero-2w bash -c "
     which airsync-detect &&
     airsync-detect &&
     echo '' &&
+    echo 'Checking airsync-generate-config...' &&
+    which airsync-generate-config &&
+    echo '' &&
     echo 'Checking config files...' &&
     ls -la /etc/shairport-sync.conf &&
     ls -la /etc/airsync/ &&
+    echo '' &&
+    echo 'Verifying config file contents (prevents soxr crash)...' &&
+    if grep -q 'interpolation = \"soxr\"' /etc/shairport-sync.conf && \
+       grep -q 'alsa = {' /etc/shairport-sync.conf && \
+       grep -q 'output_device' /etc/shairport-sync.conf; then
+        echo '  ✓ Config has soxr interpolation'
+        echo '  ✓ Config has ALSA section'
+        echo '  ✓ Config has output device'
+    else
+        echo '  ✗ Config missing required settings!'
+        exit 1
+    fi &&
     echo '' &&
     echo '✅ All verification checks passed!'
 "

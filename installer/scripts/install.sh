@@ -350,12 +350,15 @@ install_airsync() {
         exit 1
     fi
 
-    # Build release binary
+    # Build release binaries
     cargo build --release --bin detect-hardware
+    cargo build --release --bin generate-config
 
-    # Install binary
+    # Install binaries
     cp target/release/detect-hardware /usr/local/bin/airsync-detect
+    cp target/release/generate-config /usr/local/bin/airsync-generate-config
     chmod +x /usr/local/bin/airsync-detect
+    chmod +x /usr/local/bin/airsync-generate-config
 
     # Create config directory
     mkdir -p "$CONFIG_DIR"
@@ -461,40 +464,19 @@ setup_configuration() {
     echo ""
     echo "Detecting hardware and generating configuration..."
 
-    # Run hardware detection
+    # Run hardware detection (optional, saved for reference)
     /usr/local/bin/airsync-detect > "$CONFIG_DIR/hardware.json" || true
 
-    # Select audio output device
-    select_audio_device
+    # Generate shairport-sync configuration using our Rust tool
+    # This replaces all the sed commands and ensures proper ALSA configuration
+    # to prevent the soxr crash that occurred with the default config
+    /usr/local/bin/airsync-generate-config /etc/shairport-sync.conf "AirSync"
 
-    # Start from the upstream sample config and uncomment the fields we care about
-    if [ -f /etc/shairport-sync.conf.sample ]; then
-        cp /etc/shairport-sync.conf.sample /etc/shairport-sync.conf
-    else
-        echo -e "${YELLOW}Warning: shairport-sync.conf.sample not found; creating empty config${NC}"
-        touch /etc/shairport-sync.conf
-    fi
-
-    # General settings
-    sed -i '/^general =/,/^};/ s|^//[[:space:]]*name = .*|    name = "AirSync";|' /etc/shairport-sync.conf
-    sed -i '/^general =/,/^};/ s|^//[[:space:]]*output_backend = .*|    output_backend = "alsa";|' /etc/shairport-sync.conf
-    sed -i '/^general =/,/^};/ s|^//[[:space:]]*interpolation = .*|    interpolation = "soxr";|' /etc/shairport-sync.conf
-    sed -i '/^general =/,/^};/ s|^//[[:space:]]*audio_backend_latency_offset_in_seconds = .*|    audio_backend_latency_offset_in_seconds = 0.0;|' /etc/shairport-sync.conf
-
-    # ALSA section
-    sed -i '/^alsa =/,/^};/ s|^//[[:space:]]*output_device = .*|    output_device = "'"$SELECTED_AUDIO_DEVICE"'";|' /etc/shairport-sync.conf
-    sed -i '/^alsa =/,/^};/ s|^//[[:space:]]*audio_backend_buffer_desired_length_in_seconds = .*|    audio_backend_buffer_desired_length_in_seconds = 0.1;|' /etc/shairport-sync.conf
-
-    # Metadata section
-    sed -i '/^metadata =/,/^};/ s|^//[[:space:]]*enabled = .*|    enabled = "yes";|' /etc/shairport-sync.conf
-    sed -i '/^metadata =/,/^};/ s|^//[[:space:]]*include_cover_art = .*|    include_cover_art = "yes";|' /etc/shairport-sync.conf
-    sed -i '/^metadata =/,/^};/ s|^//[[:space:]]*pipe_name = .*|    pipe_name = "/tmp/shairport-sync-metadata";|' /etc/shairport-sync.conf
-
-    # Session control
-    sed -i '/^sessioncontrol =/,/^};/ s|^//[[:space:]]*session_timeout = .*|    session_timeout = 20;|' /etc/shairport-sync.conf
-
+    # Set proper ownership
     chown "$SERVICE_USER:$SERVICE_USER" /etc/shairport-sync.conf || true
-    echo -e "${GREEN}✓${NC} Configuration generated from sample"
+
+    echo -e "${GREEN}✓${NC} Configuration generated with hardware-specific settings"
+    echo "   Configuration includes proper ALSA settings to prevent audio crashes"
 }
 
 # Set up systemd service

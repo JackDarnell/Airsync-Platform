@@ -126,6 +126,27 @@ else
     test_fail "Installer doesn't detect/prompt for audio device selection"
 fi
 
+# Test 11: Installer should use Rust config generator instead of sed
+echo "Test 11: Installer uses Rust config generator (prevents soxr crash)"
+if grep -q "airsync-generate-config" ../scripts/install.sh; then
+    if ! grep -q 'sed -i.*shairport-sync.conf' ../scripts/install.sh || \
+       grep -q '# sed -i.*shairport-sync.conf' ../scripts/install.sh; then
+        test_pass "Installer uses Rust config generator instead of sed"
+    else
+        test_fail "Installer still uses sed for config (unreliable)"
+    fi
+else
+    test_fail "Installer doesn't use Rust config generator"
+fi
+
+# Test 12: Installer should build generate-config binary
+echo "Test 12: Installer builds generate-config binary"
+if grep -q "cargo build.*generate-config" ../scripts/install.sh; then
+    test_pass "Installer builds generate-config binary"
+else
+    test_fail "Installer doesn't build generate-config binary"
+fi
+
 echo ""
 echo "Test Results:"
 echo "============="

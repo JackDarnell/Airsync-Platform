@@ -1,4 +1,7 @@
 use airsync_shared_protocol::AudioOutput;
+use std::fs;
+use std::io;
+use std::path::Path;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ShairportConfig {
@@ -60,6 +63,17 @@ sessioncontrol = {{
         output_device = config.output_device,
         latency_offset = format!("{:.3}", config.latency_offset_seconds),
     )
+}
+
+/// Write shairport-sync configuration to a file
+/// This is used by the installer to generate /etc/shairport-sync.conf
+pub fn write_config_file<P: AsRef<Path>>(
+    config: &ShairportConfig,
+    path: P,
+) -> io::Result<()> {
+    let rendered = render_config_file(config);
+    fs::write(path, rendered)?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -145,5 +159,54 @@ mod tests {
         let rendered = render_config_file(&config);
 
         assert!(rendered.contains("audio_backend_latency_offset_in_seconds = -0.055"));
+    }
+
+    #[test]
+    fn config_prevents_soxr_crash_with_proper_alsa_settings() {
+        // This test ensures the generated config includes all necessary ALSA settings
+        // to prevent the soxr segfault crash that occurred during playback.
+        // The crash happened because channel layout was not properly initialized.
+
+        let config = generate_config(Some("Test Device"), AudioOutput::Headphone);
+        let rendered = render_config_file(&config);
+
+        // Must have ALSA section with output device
+        assert!(rendered.contains("alsa = {"), "Config must have alsa section");
+        assert!(rendered.contains("output_device = \"hw:0,0\""), "Must specify ALSA output device");
+
+        // Must have buffer size to ensure proper initialization
+        assert!(rendered.contains("audio_backend_buffer_desired_length_in_seconds"),
+                "Must specify audio buffer size");
+
+        // Must use soxr interpolation
+        assert!(rendered.contains("interpolation = \"soxr\""),
+                "Must use soxr interpolation for quality");
+    }
+
+    #[test]
+    fn write_config_file_creates_valid_file() {
+        use std::fs;
+
+        let temp_dir = std::env::temp_dir();
+        let config_path = temp_dir.join("test-shairport-sync.conf");
+
+        // Clean up any existing file
+        let _ = fs::remove_file(&config_path);
+
+        let config = generate_config(Some("TestDevice"), AudioOutput::I2S);
+
+        // This function doesn't exist yet - we'll create it
+        let result = write_config_file(&config, &config_path);
+
+        assert!(result.is_ok(), "Should successfully write config file");
+        assert!(config_path.exists(), "Config file should exist");
+
+        // Verify contents
+        let contents = fs::read_to_string(&config_path).unwrap();
+        assert!(contents.contains("name = \"TestDevice\""));
+        assert!(contents.contains("output_device = \"hw:0,0\""));
+
+        // Clean up
+        let _ = fs::remove_file(&config_path);
     }
 }

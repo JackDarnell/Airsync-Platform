@@ -1,0 +1,21 @@
+general = {
+    name = "AirSync";
+    interpolation = "soxr";
+    output_backend = "alsa";
+    audio_backend_latency_offset_in_seconds = 0.000;
+};
+
+alsa = {
+    output_device = "hw:0,0";
+    audio_backend_buffer_desired_length_in_seconds = 0.1;
+};
+
+metadata = {
+    enabled = "yes";
+    include_cover_art = "yes";
+    pipe_name = "/tmp/shairport-sync-metadata";
+};
+
+sessioncontrol = {
+    session_timeout = 20;
+};
