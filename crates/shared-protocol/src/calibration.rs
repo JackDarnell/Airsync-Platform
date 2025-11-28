@@ -22,6 +22,13 @@ impl Default for ChirpConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CalibrationSubmission {
+    pub timestamp: u64,
+    pub latency_ms: f32,
+    pub confidence: f32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum CalibrationMessage {
     CalibrationRequest {

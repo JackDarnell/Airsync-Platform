@@ -5,7 +5,7 @@
 
 import Foundation
 
-struct ChirpConfig: Equatable {
+struct ChirpConfig: Equatable, Codable {
     let startFrequency: Double
     let endFrequency: Double
     let durationMs: Double
@@ -20,5 +20,13 @@ struct ChirpConfig: Equatable {
             repetitions: 5,
             intervalMs: 500
         )
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case startFrequency = "start_freq"
+        case endFrequency = "end_freq"
+        case durationMs = "duration"
+        case repetitions
+        case intervalMs = "interval_ms"
     }
 }

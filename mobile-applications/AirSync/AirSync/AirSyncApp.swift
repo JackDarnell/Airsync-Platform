@@ -8,10 +8,19 @@
 import SwiftUI
 
 @main
+@MainActor
 struct AirSyncApp: App {
+    private var isRunningTests: Bool {
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+    }
+
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            ContentView(
+                session: isRunningTests
+                    ? CalibrationSession.previewSession()
+                    : CalibrationSession.liveReceiverSession()
+            )
         }
     }
 }

@@ -5,8 +5,8 @@
 
 import Foundation
 
-final class ChirpGenerator {
-    private let sampleRate: Double
+struct ChirpGenerator {
+    let sampleRate: Double
 
     init(sampleRate: Double = 48_000) {
         self.sampleRate = sampleRate

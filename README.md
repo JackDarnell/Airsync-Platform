@@ -164,6 +164,10 @@ cargo test -- --nocapture
 # Run tests with coverage (requires cargo-tarpaulin)
 cargo install cargo-tarpaulin
 cargo tarpaulin --out Html
+
+# Run iOS calibration unit tests (requires Xcode + simulator)
+cd mobile-applications/AirSync
+xcodebuild test -scheme AirSync -destination 'platform=iOS Simulator,name=iPhone 17'
 ```
 
 ### Test Organization

@@ -1,8 +1,10 @@
 use airsync_shared_protocol::AudioOutput;
 
+#[derive(Clone, Debug, PartialEq)]
 pub struct ShairportConfig {
     pub device_name: String,
     pub output_device: String,
+    pub latency_offset_seconds: f32,
 }
 
 /// Generate high-quality shairport-sync configuration
@@ -26,6 +28,7 @@ pub fn generate_config(
             .map(String::from)
             .unwrap_or_else(|| "AirSync".to_string()),
         output_device,
+        latency_offset_seconds: 0.0,
     }
 }
 
@@ -35,6 +38,7 @@ pub fn render_config_file(config: &ShairportConfig) -> String {
     name = "{name}";
     interpolation = "soxr";
     output_backend = "alsa";
+    audio_backend_latency_offset_in_seconds = {latency_offset};
 }};
 
 alsa = {{
@@ -54,6 +58,7 @@ sessioncontrol = {{
 "#,
         name = config.device_name,
         output_device = config.output_device,
+        latency_offset = format!("{:.3}", config.latency_offset_seconds),
     )
 }
 
@@ -105,6 +110,7 @@ mod tests {
         assert!(rendered.contains("audio_backend_buffer_desired_length_in_seconds = 0.1"));
         assert!(rendered.contains("include_cover_art = \"yes\""));
         assert!(rendered.contains("enabled = \"yes\""));
+        assert!(rendered.contains("audio_backend_latency_offset_in_seconds = 0.000"));
     }
 
     #[test]
@@ -129,5 +135,15 @@ mod tests {
         let rendered = render_config_file(&config);
 
         assert!(rendered.contains("audio_backend_buffer_desired_length_in_seconds = 0.1"));
+    }
+
+    #[test]
+    fn renders_latency_offset_when_present() {
+        let mut config = generate_config(None, AudioOutput::USB);
+        config.latency_offset_seconds = -0.055;
+
+        let rendered = render_config_file(&config);
+
+        assert!(rendered.contains("audio_backend_latency_offset_in_seconds = -0.055"));
     }
 }

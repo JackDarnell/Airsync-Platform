@@ -15,6 +15,9 @@ final class LatencyDetector {
         self.maximumLatencyMs = maximumLatencyMs
     }
 
+    var searchWindowMs: Double { maximumLatencyMs }
+    var searchWindowSeconds: Double { maximumLatencyMs / 1_000 }
+
     func measure(recording: [Float], sequence: ChirpSequence) -> LatencyMeasurement {
         guard !recording.isEmpty, !sequence.referenceChirp.isEmpty else {
             return LatencyMeasurement(latencyMs: 0, confidence: 0, detections: [])
