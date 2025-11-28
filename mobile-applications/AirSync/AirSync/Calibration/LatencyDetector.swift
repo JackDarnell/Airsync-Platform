@@ -25,38 +25,23 @@ final class LatencyDetector {
 
         let normalizedRecording = normalize(recording)
         let normalizedReference = normalize(sequence.referenceChirp)
-
-        let reversedReference = Array(normalizedReference.reversed())
-        var correlation = [Float](repeating: 0, count: normalizedRecording.count + normalizedReference.count - 1)
-        vDSP_conv(normalizedRecording, 1, reversedReference, 1, &correlation, 1, vDSP_Length(normalizedRecording.count), vDSP_Length(normalizedReference.count))
-
-        let baseOffset = normalizedReference.count - 1
         let maxLatencySamples = Int(sampleRate * maximumLatencyMs / 1_000)
 
         var detections: [LatencyDetection] = []
 
         for expectedStart in sequence.expectedStartSamples {
-            guard let peakIndex = peakIndex(
-                in: correlation,
+            guard let detection = findBestAlignment(
                 expectedStart: expectedStart,
-                baseOffset: baseOffset,
-                maxLatencySamples: maxLatencySamples
-            ) else { continue }
-
-            let actualStart = peakIndex - baseOffset
-            let latencySamples = actualStart - expectedStart
-            let latencyMs = (Double(latencySamples) / sampleRate) * 1_000
-            let correlationScore = normalizedCorrelation(
-                at: actualStart,
                 recording: normalizedRecording,
-                reference: normalizedReference
-            )
+                reference: normalizedReference,
+                maxOffset: maxLatencySamples
+            ) else { continue }
 
             detections.append(
                 LatencyDetection(
-                    latencyMs: latencyMs,
-                    correlation: correlationScore,
-                    sampleIndex: actualStart
+                    latencyMs: detection.latencyMs,
+                    correlation: detection.correlation,
+                    sampleIndex: detection.sampleIndex
                 )
             )
         }
@@ -68,61 +53,62 @@ final class LatencyDetector {
         return LatencyMeasurement(latencyMs: averageLatency, confidence: confidence, detections: detections)
     }
 
-    private func peakIndex(
-        in correlation: [Float],
+    private func findBestAlignment(
         expectedStart: Int,
-        baseOffset: Int,
-        maxLatencySamples: Int
-    ) -> Int? {
-        let searchStart = baseOffset + expectedStart
-        let searchEnd = min(correlation.count - 1, searchStart + maxLatencySamples)
-        guard searchStart < correlation.count, searchStart <= searchEnd else {
-            return nil
-        }
+        recording: [Float],
+        reference: [Float],
+        maxOffset: Int
+    ) -> LatencyDetection? {
+        let length = reference.count
+        let lowerBound = max(0, expectedStart - maxOffset)
+        let upperBound = min(recording.count - length, expectedStart + maxOffset)
+        guard lowerBound <= upperBound else { return nil }
 
-        var maxValue: Float = -Float.greatestFiniteMagnitude
-        var indexOfMax = searchStart
+        var bestCorrelation: Double = -Double.greatestFiniteMagnitude
+        var bestStart = expectedStart
 
-        for index in searchStart...searchEnd {
-            let value = correlation[index]
-            if value > maxValue {
-                maxValue = value
-                indexOfMax = index
+        for start in lowerBound...upperBound {
+            let correlation = normalizedCorrelation(at: start, recording: recording, reference: reference)
+            if correlation > bestCorrelation {
+                bestCorrelation = correlation
+                bestStart = start
             }
         }
 
-        return indexOfMax
+        let latencySamples = bestStart - expectedStart
+        let latencyMs = (Double(latencySamples) / sampleRate) * 1_000
+        let confidence = bestCorrelation.clamped(to: 0...1)
+
+        return LatencyDetection(latencyMs: latencyMs, correlation: confidence, sampleIndex: bestStart)
     }
 
     private func normalizedCorrelation(at start: Int, recording: [Float], reference: [Float]) -> Double {
         let length = reference.count
         guard start >= 0, start + length <= recording.count else { return 0 }
 
-        let window = Array(recording[start..<(start + length)])
+        var dot: Double = 0
+        var refEnergy: Double = 0
+        var windowEnergy: Double = 0
 
-        var dot: Float = 0
-        vDSP_dotpr(window, 1, reference, 1, &dot, vDSP_Length(length))
+        for i in 0..<length {
+            let r = Double(reference[i])
+            let w = Double(recording[start + i])
+            dot += r * w
+            refEnergy += r * r
+            windowEnergy += w * w
+        }
 
-        var referenceEnergy: Float = 0
-        vDSP_svesq(reference, 1, &referenceEnergy, vDSP_Length(length))
-
-        var windowEnergy: Float = 0
-        vDSP_svesq(window, 1, &windowEnergy, vDSP_Length(length))
-
-        let denominator = sqrt(referenceEnergy * windowEnergy)
+        let denominator = sqrt(refEnergy * windowEnergy)
         guard denominator > 0 else { return 0 }
-        let score = Double(dot / denominator)
-        return min(max(score, 0), 1)
+        return min(max(dot / denominator, 0), 1)
     }
 
     private func normalize(_ samples: [Float]) -> [Float] {
-        var maxValue: Float = 0
-        vDSP_maxmgv(samples, 1, &maxValue, vDSP_Length(samples.count))
-        guard maxValue > 0 else { return samples }
-        let scale = 1 / maxValue
-        var output = [Float](repeating: 0, count: samples.count)
-        vDSP_vsmul(samples, 1, [scale], &output, 1, vDSP_Length(samples.count))
-        return output
+        guard let maxValue = samples.map({ abs($0) }).max(), maxValue > 0 else {
+            return samples
+        }
+
+        return samples.map { $0 / maxValue }
     }
 }
 

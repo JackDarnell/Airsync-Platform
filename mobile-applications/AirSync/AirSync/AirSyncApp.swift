@@ -16,11 +16,11 @@ struct AirSyncApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView(
-                session: isRunningTests
-                    ? CalibrationSession.previewSession()
-                    : CalibrationSession.liveReceiverSession()
-            )
+            if isRunningTests {
+                CalibrationView(session: .previewSession())
+            } else {
+                ContentView()
+            }
         }
     }
 }

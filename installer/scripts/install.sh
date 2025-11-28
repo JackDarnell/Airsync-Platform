@@ -369,6 +369,12 @@ select_audio_device() {
     echo ""
     echo "Detecting available audio devices..."
 
+    if [ -n "${AUDIO_DEVICE_OVERRIDE:-}" ]; then
+        SELECTED_AUDIO_DEVICE="$AUDIO_DEVICE_OVERRIDE"
+        echo -e "${GREEN}✓${NC} Using audio device from AUDIO_DEVICE_OVERRIDE: $SELECTED_AUDIO_DEVICE"
+        return
+    fi
+
     # Check if aplay is available
     if ! command -v aplay &> /dev/null; then
         echo -e "${YELLOW}Warning: aplay not found, using default device${NC}"
@@ -414,9 +420,26 @@ select_audio_device() {
     done
     echo ""
 
+    # Auto-select if only one device
+    if [ ${#devices[@]} -eq 1 ]; then
+        SELECTED_AUDIO_DEVICE="${devices[0]}"
+        echo -e "${GREEN}✓${NC} Selected: $SELECTED_AUDIO_DEVICE (${descriptions[0]})"
+        return
+    fi
+
     # Prompt for selection
     while true; do
-        read -p "Select audio output device [1-${#devices[@]}] (default: 1): " choice
+        local choice=""
+        if [ -t 0 ]; then
+            read -r -p "Select audio output device [1-${#devices[@]}] (default: 1): " choice
+        else
+            # When piped (curl | bash), read from TTY if available
+            if [ -e /dev/tty ]; then
+                read -r -p "Select audio output device [1-${#devices[@]}] (default: 1): " choice < /dev/tty
+            else
+                choice=""
+            }
+        fi
 
         # Default to first device if no input
         if [[ -z "$choice" ]]; then

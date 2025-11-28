@@ -400,6 +400,9 @@
 				DEVELOPMENT_TEAM = Y3FG22HM56;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSBonjourServices = "_airsync._tcp,_raop._tcp";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "AirSync needs microphone access to record the calibration chirps and measure audio latency.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "AirSync uses your local network to discover and connect to receivers for calibration.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -432,6 +435,9 @@
 				DEVELOPMENT_TEAM = Y3FG22HM56;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSBonjourServices = "_airsync._tcp,_raop._tcp";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "AirSync needs microphone access to record the calibration chirps and measure audio latency.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "AirSync uses your local network to discover and connect to receivers for calibration.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

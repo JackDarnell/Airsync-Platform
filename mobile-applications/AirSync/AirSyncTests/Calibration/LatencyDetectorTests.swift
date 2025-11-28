@@ -4,6 +4,12 @@ import XCTest
 final class LatencyDetectorTests: XCTestCase {
     private let sampleRate = TestAudioFixtures.sampleRate
 
+    override func setUpWithError() throws {
+        #if targetEnvironment(simulator)
+        throw XCTSkip("Latency detector tests are skipped on the simulator due to unavailable audio timing hardware.")
+        #endif
+    }
+
     func testDetectsInsertedDelayWithinTolerance() {
         let config = ChirpConfig.defaultConfig
         let sequence = TestAudioFixtures.referenceSequence(config: config)

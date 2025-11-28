@@ -20,9 +20,11 @@ struct ChirpGenerator {
         var samples: [Float] = []
         samples.reserveCapacity(config.repetitions * stride)
 
-        for _ in 0..<config.repetitions {
+        for index in 0..<config.repetitions {
             samples.append(contentsOf: reference)
-            samples.append(contentsOf: Array(repeating: Float(0), count: gapSamples))
+            if index < config.repetitions - 1 {
+                samples.append(contentsOf: Array(repeating: Float(0), count: gapSamples))
+            }
         }
 
         return ChirpSequence(

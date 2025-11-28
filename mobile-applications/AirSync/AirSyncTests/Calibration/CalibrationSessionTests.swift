@@ -3,6 +3,12 @@ import XCTest
 
 @MainActor
 final class CalibrationSessionTests: XCTestCase {
+    override func setUpWithError() throws {
+        #if targetEnvironment(simulator)
+        throw XCTSkip("Calibration session tests are skipped on the simulator to avoid audio hardware access.")
+        #endif
+    }
+
     func testCompletesCalibrationAndSubmitsResult() async {
         let config = TestAudioFixtures.defaultConfig
         let generator = ChirpGenerator(sampleRate: TestAudioFixtures.sampleRate)
