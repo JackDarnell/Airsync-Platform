@@ -8,6 +8,12 @@ Cargo.lock
 dist/
 build/
 
+# Swift Package Manager
+.build/
+.swiftpm/
+*.xcodeproj
+Package.resolved
+
 # Environment
 .env
 .env.local
