@@ -80,6 +80,11 @@ install_dependencies() {
                 libgcrypt-dev \
                 xxd \
                 curl
+
+            # Optional: systemd-dev required on Debian 13+/Ubuntu 24.10+ and later
+            # It's okay if this fails on older systems where the package doesn't exist
+            echo "Attempting to install optional systemd-dev package..."
+            apt-get install -y --no-install-recommends systemd-dev || true
             ;;
         arch)
             pacman -Syu --noconfirm \
@@ -572,11 +577,14 @@ verify_installation() {
 
     # Check systemd service file (if systemd is available)
     if [ -d "/run/systemd/system" ]; then
-        if [ ! -f /lib/systemd/system/shairport-sync.service ]; then
+        # Check multiple possible locations where systemd service might be installed
+        if [ -f /lib/systemd/system/shairport-sync.service ] || \
+           [ -f /usr/local/lib/systemd/system/shairport-sync.service ] || \
+           [ -f /etc/systemd/system/shairport-sync.service ]; then
+            echo -e "${GREEN}✓${NC} Systemd service file installed"
+        else
             echo -e "${RED}✗${NC} Systemd service file not found"
             ERRORS=$((ERRORS + 1))
-        else
-            echo -e "${GREEN}✓${NC} Systemd service file installed"
         fi
     fi
 

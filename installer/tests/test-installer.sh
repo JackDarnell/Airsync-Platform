@@ -165,6 +165,19 @@ else
     test_fail "Installer missing libplist-utils (configure will fail without plistutil)"
 fi
 
+# Test 14: Installer should attempt to install systemd-dev (optional)
+echo "Test 14: Installer attempts to install systemd-dev (may not exist on all systems)"
+if grep -q "systemd-dev" "$INSTALL_SCRIPT"; then
+    # Check that it's installed with error suppression (|| true)
+    if grep -q "systemd-dev.*||" "$INSTALL_SCRIPT" || grep -A 2 "systemd-dev" "$INSTALL_SCRIPT" | grep -q "||"; then
+        test_pass "Installer attempts systemd-dev install with failure tolerance"
+    else
+        test_fail "Installer installs systemd-dev but doesn't handle install failures"
+    fi
+else
+    test_fail "Installer doesn't attempt to install systemd-dev (required for Debian 13+/Ubuntu 24.10+)"
+fi
+
 echo ""
 echo "Test Results:"
 echo "============="
