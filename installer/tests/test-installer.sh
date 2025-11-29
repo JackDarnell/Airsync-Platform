@@ -11,6 +11,16 @@ NC='\033[0m'
 TESTS_PASSED=0
 TESTS_FAILED=0
 
+# Determine the script directory and find install.sh
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+INSTALL_SCRIPT="$SCRIPT_DIR/../scripts/install.sh"
+
+# Verify install.sh exists
+if [ ! -f "$INSTALL_SCRIPT" ]; then
+    echo -e "${RED}Error: Cannot find install.sh at $INSTALL_SCRIPT${NC}"
+    exit 1
+fi
+
 test_pass() {
     echo -e "${GREEN}✓${NC} $1"
     TESTS_PASSED=$((TESTS_PASSED + 1))
@@ -27,8 +37,8 @@ echo ""
 
 # Test 1: Installer should not require GitHub access
 echo "Test 1: Installer works without GitHub access"
-if grep -q "github.com/JackDarnell" ../scripts/install.sh; then
-    if grep -q "# Bundled source mode" ../scripts/install.sh; then
+if grep -q "github.com/JackDarnell" "$INSTALL_SCRIPT"; then
+    if grep -q "# Bundled source mode" "$INSTALL_SCRIPT"; then
         test_pass "Installer has offline/bundled mode"
     else
         test_fail "Installer requires GitHub access (no offline mode)"
@@ -39,8 +49,8 @@ fi
 
 # Test 2: Shairport-sync configure should specify systemd directory
 echo "Test 2: Shairport-sync systemd directory specified"
-if grep -q "with-systemd" ../scripts/install.sh; then
-    if grep -q "systemunitdir" ../scripts/install.sh; then
+if grep -q "with-systemd" "$INSTALL_SCRIPT"; then
+    if grep -q "systemunitdir" "$INSTALL_SCRIPT"; then
         test_pass "Systemd unit directory explicitly configured"
     else
         test_fail "Systemd flag used but unit directory not specified"
@@ -51,8 +61,8 @@ fi
 
 # Test 3: Installer should handle missing source gracefully
 echo "Test 3: Installer checks for source before building"
-if grep -q "if.*Cargo.toml.*exists" ../scripts/install.sh || \
-   grep -q "SOURCE_ARCHIVE" ../scripts/install.sh; then
+if grep -q "if.*Cargo.toml.*exists" "$INSTALL_SCRIPT" || \
+   grep -q "SOURCE_ARCHIVE" "$INSTALL_SCRIPT"; then
     test_pass "Installer validates source availability"
 else
     test_fail "Installer doesn't check for source before building"
@@ -60,7 +70,7 @@ fi
 
 # Test 4: Installer should have GitHub fallback for online installs
 echo "Test 4: Installer can download from GitHub as fallback"
-if grep -q "git clone.*Airsync-Platform" ../scripts/install.sh; then
+if grep -q "git clone.*Airsync-Platform" "$INSTALL_SCRIPT"; then
     test_pass "Installer has GitHub download fallback"
 else
     test_fail "Installer missing GitHub download fallback"
@@ -68,9 +78,9 @@ fi
 
 # Test 5: Installer should install systemd service even in fallback mode
 echo "Test 5: Installer handles systemd service in fallback mode"
-if grep -q "make install || {" ../scripts/install.sh; then
+if grep -q "make install || {" "$INSTALL_SCRIPT"; then
     # Check if fallback block handles systemd service file
-    if grep -A 20 "make install || {" ../scripts/install.sh | grep -q "shairport-sync.service"; then
+    if grep -A 20 "make install || {" "$INSTALL_SCRIPT" | grep -q "shairport-sync.service"; then
         test_pass "Fallback mode installs systemd service file"
     else
         test_fail "Fallback mode doesn't install systemd service file"
@@ -81,9 +91,9 @@ fi
 
 # Test 6: Installer should check for systemd service when shairport-sync exists
 echo "Test 6: Installer verifies systemd service when binary exists"
-if grep -q "shairport-sync already installed" ../scripts/install.sh; then
+if grep -q "shairport-sync already installed" "$INSTALL_SCRIPT"; then
     # Check if there's logic to verify/install systemd service even when binary exists
-    if grep -A 5 "shairport-sync already installed" ../scripts/install.sh | grep -q "install_shairport_service"; then
+    if grep -A 5 "shairport-sync already installed" "$INSTALL_SCRIPT" | grep -q "install_shairport_service"; then
         test_pass "Installer checks systemd service when binary exists"
     else
         test_fail "Installer skips systemd service check when binary exists"
@@ -94,7 +104,7 @@ fi
 
 # Test 7: Installer should install NQPTP for AirPlay 2
 echo "Test 7: Installer includes NQPTP for AirPlay 2"
-if grep -q "install_nqptp\|NQPTP\|nqptp" ../scripts/install.sh; then
+if grep -q "install_nqptp\|NQPTP\|nqptp" "$INSTALL_SCRIPT"; then
     test_pass "Installer includes NQPTP installation"
 else
     test_fail "Installer missing NQPTP (required for AirPlay 2)"
@@ -102,7 +112,7 @@ fi
 
 # Test 8: Installer should build with AirPlay 2 support
 echo "Test 8: Installer configures shairport-sync with AirPlay 2"
-if grep -q "\\-\\-with-airplay-2" ../scripts/install.sh; then
+if grep -q "\\-\\-with-airplay-2" "$INSTALL_SCRIPT"; then
     test_pass "Installer includes --with-airplay-2 flag"
 else
     test_fail "Installer missing --with-airplay-2 flag"
@@ -110,9 +120,9 @@ fi
 
 # Test 9: Installer should install AirPlay 2 dependencies
 echo "Test 9: Installer includes AirPlay 2 dependencies"
-if grep -q "libplist-dev" ../scripts/install.sh && \
-   grep -q "libsodium-dev" ../scripts/install.sh && \
-   grep -q "libavcodec-dev" ../scripts/install.sh; then
+if grep -q "libplist-dev" "$INSTALL_SCRIPT" && \
+   grep -q "libsodium-dev" "$INSTALL_SCRIPT" && \
+   grep -q "libavcodec-dev" "$INSTALL_SCRIPT"; then
     test_pass "Installer includes AirPlay 2 dependencies"
 else
     test_fail "Installer missing AirPlay 2 dependencies (libplist, libsodium, ffmpeg)"
@@ -120,7 +130,7 @@ fi
 
 # Test 10: Installer should detect and allow selection of audio devices
 echo "Test 10: Installer detects and prompts for audio device selection"
-if grep -q "aplay -L\|list.*audio.*device\|select.*audio" ../scripts/install.sh; then
+if grep -q "aplay -L\|list.*audio.*device\|select.*audio" "$INSTALL_SCRIPT"; then
     test_pass "Installer includes audio device detection/selection"
 else
     test_fail "Installer doesn't detect/prompt for audio device selection"
@@ -128,9 +138,9 @@ fi
 
 # Test 11: Installer should use Rust config generator instead of sed
 echo "Test 11: Installer uses Rust config generator (prevents soxr crash)"
-if grep -q "airsync-generate-config" ../scripts/install.sh; then
-    if ! grep -q 'sed -i.*shairport-sync.conf' ../scripts/install.sh || \
-       grep -q '# sed -i.*shairport-sync.conf' ../scripts/install.sh; then
+if grep -q "airsync-generate-config" "$INSTALL_SCRIPT"; then
+    if ! grep -q 'sed -i.*shairport-sync.conf' "$INSTALL_SCRIPT" || \
+       grep -q '# sed -i.*shairport-sync.conf' "$INSTALL_SCRIPT"; then
         test_pass "Installer uses Rust config generator instead of sed"
     else
         test_fail "Installer still uses sed for config (unreliable)"
@@ -141,7 +151,7 @@ fi
 
 # Test 12: Installer should build generate-config binary
 echo "Test 12: Installer builds generate-config binary"
-if grep -q "cargo build.*generate-config" ../scripts/install.sh; then
+if grep -q "cargo build.*generate-config" "$INSTALL_SCRIPT"; then
     test_pass "Installer builds generate-config binary"
 else
     test_fail "Installer doesn't build generate-config binary"
