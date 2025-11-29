@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  airsync-receiver:
+    build:
+      context: ../..
+      dockerfile: docker/local-testing/Dockerfile
+
+    # Use host network for mDNS/Avahi discovery
+    # This allows macOS to discover the AirPlay service
+    network_mode: host
+
+    # Privileged mode for ALSA access (optional - for audio output)
+    # privileged: true
+
+    # Environment variables
+    environment:
+      - DEVICE_NAME=AirSync Local Test
+      - AUDIO_DEVICE=hw:0,0
+
+    # Optional: Share host audio device (if available)
+    # Uncomment to enable audio output
+    # devices:
+    #   - /dev/snd:/dev/snd
+
+    # Container name
+    container_name: airsync-local-test
+
+    # Auto-restart on failure
+    restart: unless-stopped
+
+    # Show logs in color
+    tty: true
+    stdin_open: true

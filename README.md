@@ -141,6 +141,26 @@ cd docker/pi-simulator
 
 This runs the complete installer in a fresh Debian container.
 
+### Local AirPlay Testing (macOS)
+
+Test AirPlay pairing locally without real hardware:
+
+```bash
+cd docker/local-testing
+bash test-local.sh
+```
+
+This:
+- ✅ Builds complete AirPlay 2 receiver in Docker
+- ✅ Uses host network for mDNS discovery
+- ✅ Appears in macOS AirPlay menu as "AirSync Local Test"
+- ✅ Tests pairing and connection handshake
+- ⚡ Fast iteration (~10 seconds after initial build)
+
+**Quick test:** Open Music app → Click AirPlay icon → Select "AirSync Local Test"
+
+See [docker/local-testing/README.md](docker/local-testing/README.md) for details.
+
 ## Running Tests
 
 This project follows Google's TDD philosophy. All features are tested before implementation.

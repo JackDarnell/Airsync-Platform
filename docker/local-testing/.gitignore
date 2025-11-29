@@ -1,0 +1,6 @@
+# Docker build cache
+.dockerignore
+
+# Temporary files
+*.tmp
+*.log
