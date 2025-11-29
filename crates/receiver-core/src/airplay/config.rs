@@ -47,6 +47,9 @@ pub fn render_config_file(config: &ShairportConfig) -> String {
 alsa = {{
     output_device = "{output_device}";
     audio_backend_buffer_desired_length_in_seconds = 0.1;
+    output_rate = "auto"; // Let ALSA choose optimal rate
+    output_format = "S16"; // Standard 16-bit signed integer format
+    disable_synchronization = "no"; // Keep synchronization enabled
 }};
 
 metadata = {{
@@ -208,5 +211,28 @@ mod tests {
 
         // Clean up
         let _ = fs::remove_file(&config_path);
+    }
+
+    #[test]
+    fn config_includes_explicit_audio_format_to_prevent_channel_layout_error() {
+        // This test ensures the config explicitly sets audio format and rate
+        // to prevent the ffmpeg/soxr channel layout initialization error.
+        // The crash was: "Input channel layout \"\" is invalid or unsupported"
+        // Solution: Explicitly configure ALSA audio format parameters
+
+        let config = generate_config(Some("Test"), AudioOutput::Headphone);
+        let rendered = render_config_file(&config);
+
+        // Must specify output rate to ensure proper channel initialization
+        assert!(rendered.contains("output_rate"),
+                "Config must specify output_rate for proper ALSA initialization");
+
+        // Must specify output format for channel layout
+        assert!(rendered.contains("output_format"),
+                "Config must specify output_format to define channel layout");
+
+        // Should not disable synchronization (needed for proper audio sync)
+        assert!(rendered.contains("disable_synchronization"),
+                "Config should explicitly set disable_synchronization");
     }
 }

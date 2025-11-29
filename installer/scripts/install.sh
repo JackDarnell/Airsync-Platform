@@ -430,23 +430,26 @@ select_audio_device() {
         return
     fi
 
-    # Prompt for selection
+    # Prompt for selection - always require user input
     while true; do
         local choice=""
         if [ -t 0 ]; then
-            read -r -p "Select audio output device [1-${#devices[@]}] (default: 1): " choice
+            read -r -p "Select audio output device [1-${#devices[@]}]: " choice
         else
             # When piped (curl | bash), read from TTY if available
             if [ -e /dev/tty ]; then
-                read -r -p "Select audio output device [1-${#devices[@]}] (default: 1): " choice < /dev/tty
+                read -r -p "Select audio output device [1-${#devices[@]}]: " choice < /dev/tty
             else
-                choice=""
+                # No TTY available and stdin piped - cannot prompt
+                echo -e "${YELLOW}Warning: No interactive terminal available, using first device${NC}"
+                choice=1
             fi
         fi
 
-        # Default to first device if no input
+        # Require selection - no default
         if [[ -z "$choice" ]]; then
-            choice=1
+            echo -e "${RED}Please select a device by entering a number between 1 and ${#devices[@]}${NC}"
+            continue
         fi
 
         if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le ${#devices[@]} ]; then
@@ -467,10 +470,13 @@ setup_configuration() {
     # Run hardware detection (optional, saved for reference)
     /usr/local/bin/airsync-detect > "$CONFIG_DIR/hardware.json" || true
 
-    # Generate shairport-sync configuration using our Rust tool
+    # Prompt user to select audio output device
+    select_audio_device
+
+    # Generate shairport-sync configuration using our Rust tool with selected device
     # This replaces all the sed commands and ensures proper ALSA configuration
     # to prevent the soxr crash that occurred with the default config
-    /usr/local/bin/airsync-generate-config /etc/shairport-sync.conf "AirSync"
+    /usr/local/bin/airsync-generate-config /etc/shairport-sync.conf "AirSync" --device "$SELECTED_AUDIO_DEVICE"
 
     # Set proper ownership
     chown "$SERVICE_USER:$SERVICE_USER" /etc/shairport-sync.conf || true
