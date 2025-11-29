@@ -249,7 +249,7 @@ install_shairport_sync() {
     local SYSTEMD_FLAG=""
     if [ -d "/run/systemd/system" ]; then
         # Explicitly set systemd unit directory to avoid install errors
-        SYSTEMD_FLAG="--with-systemd --with-systemdsystemunitdir=/lib/systemd/system"
+        SYSTEMD_FLAG="--with-systemd-startup --with-systemdsystemunitdir=/lib/systemd/system"
         echo "Systemd detected, enabling systemd integration"
     else
         echo "No systemd detected, building without systemd support"
@@ -286,6 +286,9 @@ install_shairport_sync() {
             systemctl daemon-reload 2>/dev/null || true
         fi
     }
+
+    # Ensure the systemd service file is present even if upstream doesn't install it
+    install_shairport_service
 
     cd /tmp
     rm -rf shairport-sync

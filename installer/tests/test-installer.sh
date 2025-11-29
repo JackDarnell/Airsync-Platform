@@ -178,6 +178,14 @@ else
     test_fail "Installer doesn't attempt to install systemd-dev (required for Debian 13+/Ubuntu 24.10+)"
 fi
 
+# Test 15: Installer uses systemd-startup flag for shairport-sync (required on development branch)
+echo "Test 15: Installer enables systemd startup files during build"
+if sed -n '/install_shairport_sync()/,/^}/p' "$INSTALL_SCRIPT" | grep -q "\\-\\-with-systemd-startup"; then
+    test_pass "Installer enables systemd startup integration"
+else
+    test_fail "Installer missing --with-systemd-startup flag (service file won't be installed)"
+fi
+
 echo ""
 echo "Test Results:"
 echo "============="
