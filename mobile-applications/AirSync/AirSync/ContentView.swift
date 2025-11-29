@@ -15,6 +15,18 @@ struct ContentView: View {
     var body: some View {
         NavigationStack {
             List {
+                if let error = browser.lastError {
+                    Section {
+                        Label {
+                            Text(error)
+                        } icon: {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.orange)
+                        }
+                        .foregroundStyle(.primary)
+                    }
+                }
+
                 Section(header: Text("Discovered Receivers")) {
                     if browser.receivers.isEmpty {
                         Text(browser.isScanning ? "Scanning the local network..." : "No receivers found.")
