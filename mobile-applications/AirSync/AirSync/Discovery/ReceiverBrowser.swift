@@ -7,6 +7,7 @@ final class ReceiverBrowser: ObservableObject {
     @Published private(set) var receivers: [Receiver] = []
     @Published private(set) var isScanning = false
     @Published private(set) var lastError: String?
+    @Published private(set) var needsLocalNetworkPermission = false
 
     private var browser: NWBrowser?
 
@@ -33,9 +34,13 @@ final class ReceiverBrowser: ObservableObject {
                 case .ready, .setup:
                     self?.isScanning = true
                     self?.lastError = nil
+                    self?.needsLocalNetworkPermission = false
                 case let .failed(error):
                     self?.isScanning = false
+                    self?.needsLocalNetworkPermission = Self.isLocalNetworkDenied(error)
                     self?.lastError = Self.message(for: error)
+                    self?.browser?.cancel()
+                    self?.browser = nil
                 default:
                     self?.isScanning = false
                 }
@@ -74,9 +79,20 @@ final class ReceiverBrowser: ObservableObject {
     private static func message(for error: NWError) -> String {
         switch error {
         case let .dns(errorCode) where errorCode == DNSServiceErrorType(kDNSServiceErr_NoAuth):
-            return "Local Network permission is required to discover receivers. Enable it in Settings > Privacy > Local Network."
+            return "Local Network permission is required to discover receivers. Enable it in Settings > Privacy & Security > Local Network."
         default:
             return "Discovery failed: \(error.localizedDescription)"
+        }
+    }
+
+    private static func isLocalNetworkDenied(_ error: NWError) -> Bool {
+        switch error {
+        case let .dns(errorCode) where errorCode == DNSServiceErrorType(kDNSServiceErr_NoAuth):
+            return true
+        case let .posix(errorCode) where errorCode == .EACCES:
+            return true
+        default:
+            return false
         }
     }
 }
