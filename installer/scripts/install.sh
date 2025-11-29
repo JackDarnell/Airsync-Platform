@@ -71,6 +71,7 @@ install_dependencies() {
                 libsoxr-dev \
                 libsystemd-dev \
                 libplist-dev \
+                libplist-utils \
                 libsodium-dev \
                 libavutil-dev \
                 libavcodec-dev \

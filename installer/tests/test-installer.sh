@@ -157,6 +157,14 @@ else
     test_fail "Installer doesn't build generate-config binary"
 fi
 
+# Test 13: Installer should include libplist-utils for plistutil
+echo "Test 13: Installer includes libplist-utils (provides plistutil binary)"
+if grep -q "libplist-utils" "$INSTALL_SCRIPT"; then
+    test_pass "Installer includes libplist-utils package"
+else
+    test_fail "Installer missing libplist-utils (configure will fail without plistutil)"
+fi
+
 echo ""
 echo "Test Results:"
 echo "============="
