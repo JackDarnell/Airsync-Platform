@@ -48,7 +48,7 @@ alsa = {{
     output_device = "{output_device}";
     audio_backend_buffer_desired_length_in_seconds = 0.1;
     output_rate = "auto"; // Let ALSA choose optimal rate
-    output_format = "S16"; // Standard 16-bit signed integer format
+    output_format = "auto"; // Let ALSA auto-detect optimal format
     disable_synchronization = "no"; // Keep synchronization enabled
 }};
 
