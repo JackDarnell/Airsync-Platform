@@ -83,14 +83,17 @@ private final class MockRecorder: MicrophoneRecorder {
         self.sampleRate = sampleRate
     }
 
-    func record(for duration: TimeInterval, sampleRate: Double) async throws -> [Float] {
+    func record(for duration: TimeInterval, sampleRate: Double, levelHandler: @escaping (Float) -> Void) async throws -> [Float] {
         XCTAssertEqual(sampleRate, self.sampleRate, accuracy: 0.1)
+        if let first = samples.first {
+            levelHandler(first)
+        }
         return samples
     }
 }
 
 private final class FailingRecorder: MicrophoneRecorder {
-    func record(for duration: TimeInterval, sampleRate: Double) async throws -> [Float] {
+    func record(for duration: TimeInterval, sampleRate: Double, levelHandler: @escaping (Float) -> Void) async throws -> [Float] {
         throw NSError(domain: "Recorder", code: -1)
     }
 }
@@ -102,13 +105,18 @@ private final class MockCalibrationAPI: CalibrationAPI {
     private(set) var serverTimeRequests = 0
     private(set) var triggerRequests = 0
     private(set) var lastTargetStartMs: UInt64?
+    private var spec: CalibrationSignalSpec = CalibrationSignalSpec(
+        sampleRate: 48_000,
+        lengthSamples: 4_000,
+        markers: []
+    )
 
     func serverTimeMs() async throws -> UInt64 {
         serverTimeRequests += 1
         return 1_000
     }
 
-    func startPlayback(_ config: ChirpConfig, delayMs: UInt64) async throws {
+    func startPlayback(_ config: ChirpConfig, delayMs: UInt64, structured: Bool) async throws {
         startRequests += 1
         lastDelayMs = delayMs
     }
@@ -120,5 +128,9 @@ private final class MockCalibrationAPI: CalibrationAPI {
 
     func submitResult(_ result: CalibrationResultPayload) async throws {
         submittedResult = result
+    }
+
+    func fetchCalibrationSpec() async throws -> CalibrationSignalSpec {
+        return spec
     }
 }

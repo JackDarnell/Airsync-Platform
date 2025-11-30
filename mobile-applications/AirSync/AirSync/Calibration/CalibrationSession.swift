@@ -19,19 +19,22 @@ struct CalibrationRequestPayload: Codable {
     let timestamp: UInt64
     let chirpConfig: ChirpConfig
     let delayMs: UInt64
+    let structured: Bool
 
     enum CodingKeys: String, CodingKey {
         case timestamp
         case chirpConfig = "chirp_config"
         case delayMs = "delay_ms"
+        case structured
     }
 }
 
 protocol CalibrationAPI {
     func serverTimeMs() async throws -> UInt64
-    func startPlayback(_ config: ChirpConfig, delayMs: UInt64) async throws
+    func startPlayback(_ config: ChirpConfig, delayMs: UInt64, structured: Bool) async throws
     func triggerPlayback(targetStartMs: UInt64) async throws
     func submitResult(_ result: CalibrationResultPayload) async throws
+    func fetchCalibrationSpec() async throws -> CalibrationSignalSpec
 }
 
 protocol MicrophoneRecorder {
@@ -137,25 +140,29 @@ final class CalibrationSession: ObservableObject {
         var recordingTask: Task<[Float], Error>?
         do {
             try await microphoneAccess()
-            let sequence = generator.makeSequence(config: config)
             print("Calibration starting with config: start=\(config.startFrequency)Hz end=\(config.endFrequency)Hz durationMs=\(config.durationMs) reps=\(config.repetitions) intervalMs=\(config.intervalMs) amp=\(config.amplitude)")
             let serverTime = (try? await api.serverTimeMs()) ?? Self.timestampNow()
             let targetStart = serverTime + playbackDelayMs + 1_000 // safety cushion
             print("Calibration target start (server ms): \(targetStart) delay_ms=\(playbackDelayMs)")
 
-            try await api.startPlayback(config, delayMs: playbackDelayMs)
+            // Structured-only: require spec and request structured playback
+            let spec = try await api.fetchCalibrationSpec()
+            let sampleRate = Double(spec.sampleRate)
+
+            try await api.startPlayback(config, delayMs: playbackDelayMs, structured: true)
             let delaySeconds = Double(playbackDelayMs) / 1_000
-            let recordDuration = delaySeconds + recordingDuration(for: sequence) + 0.2
+            let lengthSeconds = Double(spec.lengthSamples) / Double(spec.sampleRate)
+            let recordDuration: TimeInterval = delaySeconds + lengthSeconds + 1.0
             let total = recordDuration + 0.5
             expectedDuration = total
             startProgressTimer(totalDuration: total)
 
             stage = .recording
             recordingTask = Task {
-                print("Calibration recording started for \(recordDuration)s at sampleRate \(sequence.sampleRate)Hz")
+                print("Calibration recording started for \(recordDuration)s at sampleRate \(sampleRate)Hz")
                 return try await recorder.record(
                     for: recordDuration,
-                    sampleRate: sequence.sampleRate,
+                    sampleRate: sampleRate,
                     levelHandler: { [weak self] rms in
                         guard let self else { return }
                         self.handleMicLevel(rms)
@@ -172,10 +179,12 @@ final class CalibrationSession: ObservableObject {
             stage = .calculating
             startCalculationProgressTimer(totalDuration: 5)
             print("Calibration measuring latency...")
-            let startOffsetSamples = Int(sequence.sampleRate * Double(playbackDelayMs) / 1_000)
-            let measurement = detector.measure(
+            let measurement: LatencyMeasurement
+            let startOffsetSamples = Int(Double(playbackDelayMs) / 1000.0 * Double(spec.sampleRate))
+            let detector = StructuredDetector(sampleRate: Double(spec.sampleRate))
+            measurement = detector.measure(
                 recording: recording,
-                sequence: sequence,
+                spec: spec,
                 startOffsetSamples: startOffsetSamples
             )
             let detectionCount = measurement.detections.count
@@ -188,7 +197,7 @@ final class CalibrationSession: ObservableObject {
             calculationProgress = 1
 
             if detectionCount == 0 {
-                print("Calibration detected zero chirps; submitting zero-confidence result for visibility.")
+                print("Calibration detected zero markers; submitting zero-confidence result for visibility.")
             }
 
             stage = .sending
@@ -357,9 +366,12 @@ private struct SilentRecorder: MicrophoneRecorder {
 
 private struct NoopCalibrationAPI: CalibrationAPI {
     func serverTimeMs() async throws -> UInt64 { 0 }
-    func startPlayback(_ config: ChirpConfig, delayMs: UInt64) async throws {}
+    func startPlayback(_ config: ChirpConfig, delayMs: UInt64, structured: Bool) async throws {}
     func triggerPlayback(targetStartMs: UInt64) async throws {}
     func submitResult(_ result: CalibrationResultPayload) async throws {}
+    func fetchCalibrationSpec() async throws -> CalibrationSignalSpec {
+        throw URLError(.badURL)
+    }
 }
 
 final class AVMicrophoneRecorder: MicrophoneRecorder {

@@ -33,6 +33,7 @@ struct CalibrationView: View {
                 if let measurement = session.latestMeasurement {
                     Text("Latency: \(Int(measurement.latencyMs)) ms")
                     Text("Confidence: \(Int(measurement.confidence * 100))%")
+                    Text("Detections: \(measurement.detections.count)")
                 } else {
                     Text("No calibration data yet.")
                         .foregroundStyle(.secondary)

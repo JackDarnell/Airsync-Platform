@@ -9,6 +9,16 @@ final class ReceiverCalibrationClient: CalibrationAPI {
         self.session = session
     }
 
+    func fetchCalibrationSpec() async throws -> CalibrationSignalSpec {
+        let request = URLRequest(url: endpoint(path: "api/calibration/spec"))
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            throw URLError(.badServerResponse)
+        }
+        let wrapper = try JSONDecoder().decode(CalibrationSpecResponse.self, from: data)
+        return wrapper.spec
+    }
+
     func serverTimeMs() async throws -> UInt64 {
         let request = URLRequest(url: endpoint(path: "api/time"))
         let (data, _) = try await session.data(for: request)
@@ -16,11 +26,12 @@ final class ReceiverCalibrationClient: CalibrationAPI {
         return response.serverTimeMs
     }
 
-    func startPlayback(_ config: ChirpConfig, delayMs: UInt64) async throws {
+    func startPlayback(_ config: ChirpConfig, delayMs: UInt64, structured: Bool) async throws {
         let payload = CalibrationRequestPayload(
             timestamp: Self.timestampNow(),
             chirpConfig: config,
-            delayMs: delayMs
+            delayMs: delayMs,
+            structured: structured
         )
 
         var request = URLRequest(url: endpoint(path: "api/calibration/request"))
@@ -69,6 +80,10 @@ private struct TimeSyncResponse: Decodable {
     enum CodingKeys: String, CodingKey {
         case serverTimeMs = "server_time_ms"
     }
+}
+
+private struct CalibrationSpecResponse: Decodable {
+    let spec: CalibrationSignalSpec
 }
 
 private struct CalibrationReadyPayload: Encodable {

@@ -24,7 +24,7 @@ final class LatencyDetectorTests: XCTestCase {
     }
 
     func testDetectsLatencyWithModerateNoise() {
-        let config = ChirpConfig(startFrequency: 2000, endFrequency: 8000, durationMs: 50, repetitions: 5, intervalMs: 250)
+        let config = ChirpConfig(startFrequency: 2000, endFrequency: 8000, durationMs: 50, repetitions: 5, intervalMs: 250, amplitude: 1.0)
         let sequence = TestAudioFixtures.referenceSequence(config: config)
         let recordedAudio = TestAudioFixtures.recordedAudio(for: config, latencyMs: 32, noiseAmplitude: 0.15)
 
@@ -36,7 +36,7 @@ final class LatencyDetectorTests: XCTestCase {
     }
 
     func testIdentifiesEarliestChirpWhenRepeated() {
-        let config = ChirpConfig(startFrequency: 2200, endFrequency: 7600, durationMs: 60, repetitions: 3, intervalMs: 180)
+        let config = ChirpConfig(startFrequency: 2200, endFrequency: 7600, durationMs: 60, repetitions: 3, intervalMs: 180, amplitude: 1.0)
         let sequence = TestAudioFixtures.referenceSequence(config: config)
         let recordedAudio = TestAudioFixtures.recordedAudio(for: config, latencyMs: 25, noiseAmplitude: 0.02)
 
