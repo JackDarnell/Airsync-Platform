@@ -3,10 +3,12 @@ import Foundation
 struct PairingStartResponse: Codable, Equatable {
     let receiverID: String
     let capabilities: [String]
+    let outputDevice: String?
 
     enum CodingKeys: String, CodingKey {
         case receiverID = "receiver_id"
         case capabilities
+        case outputDevice = "output_device"
     }
 }
 

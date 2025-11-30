@@ -13,7 +13,7 @@ final class ReceiverPairingClientTests: XCTestCase {
     }
 
     func testStartReturnsReceiverInfo() async throws {
-        let expected = PairingStartResponse(receiverID: "rx-1", capabilities: ["calibration"])
+        let expected = PairingStartResponse(receiverID: "rx-1", capabilities: ["calibration"], outputDevice: "hw:1,0")
         MockURLProtocol.requestHandler = { request in
             XCTAssertEqual(request.url?.path, "/api/pairing/start")
             let data = try JSONEncoder().encode(expected)

@@ -27,6 +27,7 @@ pub struct ReceiverInfo {
 pub struct PairingStartResponse {
     pub receiver_id: String,
     pub capabilities: Vec<String>,
+    pub output_device: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -127,9 +128,11 @@ pub fn router(state: ReceiverState) -> Router {
 }
 
 async fn pairing_start(State(state): State<ReceiverState>, Json(_): Json<PairingStartRequest>) -> Result<Json<PairingStartResponse>, StatusCode> {
+    let cfg = state.settings.current();
     Ok(Json(PairingStartResponse {
         receiver_id: state.info.receiver_id.clone(),
         capabilities: state.info.capabilities.clone(),
+        output_device: cfg.output_device,
     }))
 }
 
@@ -208,11 +211,13 @@ impl PlaybackSink for NoopPlaybackSink {
 
 pub struct SystemPlaybackSink {
     sample_rate: u32,
+    gain: f32,
+    config: Arc<Mutex<ShairportConfig>>,
 }
 
 impl SystemPlaybackSink {
-    pub fn new(sample_rate: u32) -> Self {
-        Self { sample_rate }
+    pub fn new(sample_rate: u32, config: Arc<Mutex<ShairportConfig>>, gain: f32) -> Self {
+        Self { sample_rate, gain, config }
     }
 
     fn write_wave(&self, chirp: &ChirpConfig) -> Result<std::path::PathBuf> {
@@ -225,7 +230,7 @@ impl SystemPlaybackSink {
             sample_format: hound::SampleFormat::Int,
         };
         let mut writer = hound::WavWriter::create(&path, spec)?;
-        let samples = generate_chirp_samples(chirp, self.sample_rate);
+        let samples = generate_chirp_samples(chirp, self.sample_rate, self.gain);
         for s in samples {
             writer.write_sample(s)?;
         }
@@ -237,9 +242,11 @@ impl SystemPlaybackSink {
 impl PlaybackSink for SystemPlaybackSink {
     fn play(&self, chirp: &ChirpConfig) -> Result<()> {
         let wav_path = self.write_wave(chirp)?;
-        let status = Command::new("aplay")
-            .args(["-q", wav_path.to_str().unwrap_or("")])
-            .status();
+        let mut cmd = Command::new("aplay");
+        let dev = { self.config.lock().unwrap().output_device.clone() };
+        cmd.args(["-D", dev.as_str()]);
+        cmd.args(["-q", wav_path.to_str().unwrap_or("")]);
+        let status = cmd.status();
         std::fs::remove_file(&wav_path).ok();
         match status {
             Ok(s) if s.success() => Ok(()),
@@ -249,7 +256,7 @@ impl PlaybackSink for SystemPlaybackSink {
     }
 }
 
-fn generate_chirp_samples(cfg: &ChirpConfig, sample_rate: u32) -> Vec<i16> {
+fn generate_chirp_samples(cfg: &ChirpConfig, sample_rate: u32, gain: f32) -> Vec<i16> {
     let sr = sample_rate as f32;
     let duration_s = cfg.duration as f32 / 1000.0;
     let interval_s = cfg.interval_ms as f32 / 1000.0;
@@ -258,7 +265,7 @@ fn generate_chirp_samples(cfg: &ChirpConfig, sample_rate: u32) -> Vec<i16> {
         .map(|n| {
             let t = n as f32 / sr;
             let phase = 2.0 * PI * (cfg.start_freq as f32 * t + 0.5 * sweep_k * t * t / duration_s);
-            let sample = (phase.sin() * 0.5 * i16::MAX as f32).round();
+            let sample = (phase.sin() * gain.clamp(0.0, 1.0) * i16::MAX as f32).round();
             sample as i16
         })
         .collect::<Vec<_>>();
@@ -394,6 +401,7 @@ mod tests {
     struct MockPlaybackSink {
         last: Arc<Mutex<Option<ChirpConfig>>>,
         calls: Arc<Mutex<u32>>,
+        fail: bool,
     }
 
     impl MockPlaybackSink {
@@ -401,6 +409,7 @@ mod tests {
             Self {
                 last: Arc::new(Mutex::new(None)),
                 calls: Arc::new(Mutex::new(0)),
+                fail: false,
             }
         }
 
@@ -417,6 +426,9 @@ mod tests {
         fn play(&self, chirp: &ChirpConfig) -> Result<()> {
             *self.calls.lock().unwrap() += 1;
             *self.last.lock().unwrap() = Some(chirp.clone());
+            if self.fail {
+                return Err(anyhow!("fail"));
+            }
             Ok(())
         }
     }
@@ -503,6 +515,7 @@ mod tests {
         let start: PairingStartResponse = serde_json::from_slice(&body).unwrap();
         assert_eq!(start.receiver_id, "rx-1");
         assert_eq!(start.capabilities, vec!["calibration"]);
+        assert_eq!(start.output_device, "hw:0,0");
     }
 
     #[tokio::test]
@@ -617,6 +630,44 @@ mod tests {
         let last = playback.last().unwrap();
         assert_eq!(last.start_freq, 2000);
         assert_eq!(last.end_freq, 8000);
+    }
+
+    #[tokio::test]
+    async fn calibration_request_failure_returns_500() {
+        let mut playback = MockPlaybackSink::new();
+        playback.fail = true;
+        let playback = Arc::new(playback);
+        let state = ReceiverState::new(
+            ReceiverInfo {
+                receiver_id: "rx-1".into(),
+                name: "Test".into(),
+                capabilities: vec!["calibration".into()],
+            },
+            Arc::new(MockCalibrationSink::new()),
+            Arc::new(MockSettingsManager::new()),
+            playback,
+        );
+        let app = router(state);
+        let req_body = json!({
+            "timestamp": 1,
+            "chirp_config": {
+                "start_freq": 2000,
+                "end_freq": 8000,
+                "duration": 50,
+                "repetitions": 5,
+                "interval_ms": 500
+            }
+        });
+        let response = app
+            .oneshot(
+                Request::post("/api/calibration/request")
+                    .header("content-type", "application/json")
+                    .body(Body::from(req_body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
     }
 
     #[test]

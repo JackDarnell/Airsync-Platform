@@ -23,6 +23,12 @@ struct PairingView: View {
                 .font(.title2)
                 .bold()
 
+            if let output = startResponse?.outputDevice {
+                Label("Output device: \(output)", systemImage: "speaker.wave.2")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
             ProgressView(startResponse == nil ? "Connecting..." : "Connected")
 
             if let error = errorMessage {
