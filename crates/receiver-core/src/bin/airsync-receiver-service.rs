@@ -36,7 +36,12 @@ async fn main() -> anyhow::Result<()> {
         config.clone(),
     ));
 
-    let playback = Arc::new(SystemPlaybackSink::new(48_000, config.clone(), 1.0));
+    let playback = Arc::new(SystemPlaybackSink::new(
+        48_000,
+        config.clone(),
+        1.0,
+        Some(std::path::PathBuf::from("/usr/local/share/airsync/chirp.wav")),
+    ));
     let state = ReceiverState::new(info, sink, settings, playback);
     let app = router(state);
 

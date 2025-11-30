@@ -325,7 +325,8 @@ install_receiver_service_unit() {
 
     # Allow airsync user to restart shairport-sync without a password
     cat >/etc/sudoers.d/airsync-shairport <<'EOF'
-airsync ALL=NOPASSWD: /usr/bin/systemctl restart shairport-sync
+airsync ALL=(root) NOPASSWD: /usr/bin/systemctl restart shairport-sync, /bin/systemctl restart shairport-sync
+Defaults:airsync !requiretty
 EOF
     chmod 440 /etc/sudoers.d/airsync-shairport
 
@@ -471,14 +472,17 @@ install_airsync() {
     cargo build --release --bin detect-hardware
     cargo build --release --bin generate-config
     cargo build --release --bin airsync-receiver-service
+    cargo build --release --bin generate-chirp-wav
 
     # Install binaries
     cp target/release/detect-hardware /usr/local/bin/airsync-detect
     cp target/release/generate-config /usr/local/bin/airsync-generate-config
     cp target/release/airsync-receiver-service /usr/local/bin/airsync-receiver-service
+    cp target/release/generate-chirp-wav /usr/local/bin/airsync-generate-chirp-wav
     chmod +x /usr/local/bin/airsync-detect
     chmod +x /usr/local/bin/airsync-generate-config
     chmod +x /usr/local/bin/airsync-receiver-service
+    chmod +x /usr/local/bin/airsync-generate-chirp-wav
 
     # Create config directory
     mkdir -p "$CONFIG_DIR"
@@ -487,6 +491,11 @@ install_airsync() {
     # Create state dir for receiver id / cache
     mkdir -p "$STATE_DIR"
     chown "$SERVICE_USER:$SERVICE_USER" "$STATE_DIR"
+
+    # Pre-generate chirp WAV
+    mkdir -p /usr/local/share/airsync
+    chown "$SERVICE_USER:$SERVICE_USER" /usr/local/share/airsync
+    /usr/local/bin/airsync-generate-chirp-wav /usr/local/share/airsync/chirp.wav 48000 1.0 || true
 
     echo -e "${GREEN}✓${NC} AirSync daemon installed"
 }

@@ -2,11 +2,11 @@ use std::net::SocketAddr;
 use std::path::Path;
 use std::process::Command;
 use std::sync::{Arc, Mutex};
-use std::f32::consts::PI;
 
 use crate::calibration::{CalibrationApplier, ConfigWriter, ShairportController};
 use crate::airplay::{render_config_file, ShairportConfig};
 use airsync_shared_protocol::{CalibrationSubmission, ChirpConfig};
+use crate::generate_chirp_samples;
 use anyhow::{anyhow, Context, Result};
 use axum::extract::State;
 use axum::http::StatusCode;
@@ -213,11 +213,12 @@ pub struct SystemPlaybackSink {
     sample_rate: u32,
     gain: f32,
     config: Arc<Mutex<ShairportConfig>>,
+    pregen_path: Option<std::path::PathBuf>,
 }
 
 impl SystemPlaybackSink {
-    pub fn new(sample_rate: u32, config: Arc<Mutex<ShairportConfig>>, gain: f32) -> Self {
-        Self { sample_rate, gain, config }
+    pub fn new(sample_rate: u32, config: Arc<Mutex<ShairportConfig>>, gain: f32, pregen_path: Option<std::path::PathBuf>) -> Self {
+        Self { sample_rate, gain, config, pregen_path }
     }
 
     fn write_wave(&self, chirp: &ChirpConfig) -> Result<tempfile::NamedTempFile> {
@@ -240,8 +241,12 @@ impl SystemPlaybackSink {
 
 impl PlaybackSink for SystemPlaybackSink {
     fn play(&self, chirp: &ChirpConfig) -> Result<()> {
-        let file = self.write_wave(chirp)?;
-        let wav_path = file.path().to_path_buf();
+        let wav_path = if let Some(path) = &self.pregen_path {
+            path.clone()
+        } else {
+            let file = self.write_wave(chirp)?;
+            file.into_temp_path().keep()?
+        };
         let mut cmd = Command::new("aplay");
         let dev = { self.config.lock().unwrap().output_device.clone() };
         if !dev.is_empty() {
@@ -255,28 +260,6 @@ impl PlaybackSink for SystemPlaybackSink {
             Err(e) => Err(anyhow!("failed to run aplay: {}", e)),
         }
     }
-}
-
-fn generate_chirp_samples(cfg: &ChirpConfig, sample_rate: u32, gain: f32) -> Vec<i16> {
-    let sr = sample_rate as f32;
-    let duration_s = cfg.duration as f32 / 1000.0;
-    let interval_s = cfg.interval_ms as f32 / 1000.0;
-    let sweep_k = (cfg.end_freq as f32 - cfg.start_freq as f32) / duration_s;
-    let single = (0..(duration_s * sr) as usize)
-        .map(|n| {
-            let t = n as f32 / sr;
-            let phase = 2.0 * PI * (cfg.start_freq as f32 * t + 0.5 * sweep_k * t * t / duration_s);
-            let sample = (phase.sin() * gain.clamp(0.0, 1.0) * i16::MAX as f32).round();
-            sample as i16
-        })
-        .collect::<Vec<_>>();
-    let silence = (0..(interval_s * sr) as usize).map(|_| 0i16).collect::<Vec<_>>();
-    let mut out = Vec::new();
-    for _ in 0..cfg.repetitions.max(1) {
-        out.extend_from_slice(&single);
-        out.extend_from_slice(&silence);
-    }
-    out
 }
 
 impl<W: ConfigWriter + Send + Sync + 'static, C: ShairportController + Send + Sync + 'static>
@@ -369,6 +352,7 @@ mod tests {
     use axum::http::Request;
     use serde_json::json;
     use tower::ServiceExt;
+    use crate::generate_chirp_samples;
 
     #[derive(Clone)]
     struct MockCalibrationSink {
