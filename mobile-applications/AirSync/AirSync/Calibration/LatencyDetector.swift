@@ -18,7 +18,11 @@ final class LatencyDetector {
     var searchWindowMs: Double { maximumLatencyMs }
     var searchWindowSeconds: Double { maximumLatencyMs / 1_000 }
 
-    func measure(recording: [Float], sequence: ChirpSequence) -> LatencyMeasurement {
+    func measure(
+        recording: [Float],
+        sequence: ChirpSequence,
+        startOffsetSamples: Int = 0
+    ) -> LatencyMeasurement {
         guard !recording.isEmpty, !sequence.referenceChirp.isEmpty else {
             return LatencyMeasurement(latencyMs: 0, confidence: 0, detections: [])
         }
@@ -26,10 +30,11 @@ final class LatencyDetector {
         let normalizedRecording = normalize(recording)
         let normalizedReference = normalize(sequence.referenceChirp)
         let maxLatencySamples = Int(sampleRate * maximumLatencyMs / 1_000)
+        let expectedStarts = sequence.expectedStartSamples.map { $0 + startOffsetSamples }
 
         var detections: [LatencyDetection] = []
 
-        for expectedStart in sequence.expectedStartSamples {
+        for expectedStart in expectedStarts {
             guard let detection = findBestAlignment(
                 expectedStart: expectedStart,
                 recording: normalizedRecording,
@@ -66,8 +71,9 @@ final class LatencyDetector {
 
         var bestCorrelation: Double = -Double.greatestFiniteMagnitude
         var bestStart = expectedStart
+        let step = 4 // reduce work; resolution ~0.08ms at 48kHz
 
-        for start in lowerBound...upperBound {
+        for start in stride(from: lowerBound, through: upperBound, by: step) {
             let correlation = normalizedCorrelation(at: start, recording: recording, reference: reference)
             if correlation > bestCorrelation {
                 bestCorrelation = correlation
@@ -100,7 +106,7 @@ final class LatencyDetector {
 
         let denominator = sqrt(refEnergy * windowEnergy)
         guard denominator > 0 else { return 0 }
-        return min(max(dot / denominator, 0), 1)
+        return min(abs(dot) / denominator, 1)
     }
 
     private func normalize(_ samples: [Float]) -> [Float] {

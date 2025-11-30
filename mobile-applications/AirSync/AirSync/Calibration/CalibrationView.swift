@@ -4,7 +4,8 @@ import SwiftUI
 struct CalibrationView: View {
     @StateObject private var session: CalibrationSession
     @State private var isCalibrating = false
-    @State private var volume: Double = 0.8
+    @State private var isApplying = false
+    @State private var volume: Double = 0.9
 
     init(session: CalibrationSession) {
         _session = StateObject(wrappedValue: session)
@@ -22,7 +23,9 @@ struct CalibrationView: View {
 
             statusView
             progressSection
+            calculationSection
             volumeSection
+            applySection
 
             VStack(alignment: .leading, spacing: 8) {
                 Text("Latest Measurement")
@@ -51,7 +54,7 @@ struct CalibrationView: View {
                         ProgressView()
                             .progressViewStyle(.circular)
                     }
-                    Text(isCalibrating ? "Calibrating..." : "Start Calibration")
+                    Text(calibrationButtonText)
                         .fontWeight(.semibold)
                 }
                 .frame(maxWidth: .infinity)
@@ -73,6 +76,7 @@ struct CalibrationView: View {
             Text(statusText)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
+            micIndicator
         }
     }
 
@@ -80,7 +84,7 @@ struct CalibrationView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Playback Volume")
                 .font(.headline)
-            Slider(value: $volume, in: 0.2...1.0, step: 0.05)
+            Slider(value: $volume, in: 0.5...1.0, step: 0.05)
             Text("Volume: \(Int(volume * 100))%")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
@@ -126,6 +130,80 @@ struct CalibrationView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
+        }
+    }
+
+    private var calculationSection: some View {
+        Group {
+            if session.stage == .calculating {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Calculation")
+                        .font(.headline)
+                    ProgressView(value: session.calculationProgress)
+                        .progressViewStyle(.linear)
+                    Text("Analyzing chirps…")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private var micIndicator: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(session.micPulse ? Color.green : Color.gray.opacity(0.4))
+                .frame(width: 12, height: 12)
+                .scaleEffect(session.micPulse ? 1.4 : 1.0)
+                .animation(.easeInOut(duration: 0.15), value: session.micPulse)
+            Text(session.micPulse ? "Mic signal detected" : "Waiting for signal...")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var applySection: some View {
+        Group {
+            if session.latestMeasurement != nil {
+                VStack(alignment: .leading, spacing: 8) {
+                    Button {
+                        Task {
+                            isApplying = true
+                            await session.applyLatestMeasurement()
+                            isApplying = false
+                        }
+                    } label: {
+                        HStack {
+                            if isApplying {
+                                ProgressView()
+                                    .progressViewStyle(.circular)
+                            }
+                            Text(isApplying ? "Applying..." : "Send to Receiver & Restart")
+                                .fontWeight(.semibold)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.blue.opacity(0.9))
+                        .foregroundStyle(.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
+                    .disabled(isApplying)
+
+                    Text("Applies the measured latency to the receiver and restarts AirPlay.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private var calibrationButtonText: String {
+        if isCalibrating {
+            return "Calibrating..."
+        } else if session.latestMeasurement != nil {
+            return "Retry Calibration"
+        } else {
+            return "Start Calibration"
         }
     }
 }

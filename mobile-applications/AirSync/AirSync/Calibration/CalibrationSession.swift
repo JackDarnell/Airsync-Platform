@@ -1,4 +1,5 @@
 import AVFoundation
+import Accelerate
 import Combine
 import Foundation
 
@@ -34,7 +35,11 @@ protocol CalibrationAPI {
 }
 
 protocol MicrophoneRecorder {
-    func record(for duration: TimeInterval, sampleRate: Double) async throws -> [Float]
+    func record(
+        for duration: TimeInterval,
+        sampleRate: Double,
+        levelHandler: @escaping (Float) -> Void
+    ) async throws -> [Float]
 }
 
 enum CalibrationStage: Equatable {
@@ -91,6 +96,8 @@ final class CalibrationSession: ObservableObject {
     @Published private(set) var stage: CalibrationStage = .idle
     @Published private(set) var latestMeasurement: LatencyMeasurement?
     @Published private(set) var progress: Double = 0
+    @Published private(set) var calculationProgress: Double = 0
+    @Published private(set) var micPulse: Bool = false
 
     private let generator: ChirpGenerator
     private let detector: LatencyDetector
@@ -99,8 +106,10 @@ final class CalibrationSession: ObservableObject {
     private var config: ChirpConfig
     private let microphoneAccess: () async throws -> Void
     private var progressTask: Task<Void, Never>?
+    private var calcProgressTask: Task<Void, Never>?
     private var expectedDuration: TimeInterval = 1.0
     private let playbackDelayMs: UInt64 = 3_000
+    private let detectorSlackMs: Double = 600
 
     init(
         generator: ChirpGenerator? = nil,
@@ -111,7 +120,7 @@ final class CalibrationSession: ObservableObject {
         microphoneAccess: @escaping () async throws -> Void = CalibrationSession.requestMicrophoneAccess
     ) {
         self.generator = generator ?? ChirpGenerator()
-        let maxLatencyMs = Double(playbackDelayMs) + 500
+        let maxLatencyMs = detectorSlackMs
         self.detector = detector ?? LatencyDetector(maximumLatencyMs: maxLatencyMs)
         self.recorder = recorder
         self.api = api
@@ -121,12 +130,15 @@ final class CalibrationSession: ObservableObject {
 
     func start() async {
         progressTask?.cancel()
+        calcProgressTask?.cancel()
         progress = 0
+        calculationProgress = 0
         stage = .requestingPlayback
         var recordingTask: Task<[Float], Error>?
         do {
             try await microphoneAccess()
             let sequence = generator.makeSequence(config: config)
+            print("Calibration starting with config: start=\(config.startFrequency)Hz end=\(config.endFrequency)Hz durationMs=\(config.durationMs) reps=\(config.repetitions) intervalMs=\(config.intervalMs) amp=\(config.amplitude)")
             let serverTime = (try? await api.serverTimeMs()) ?? Self.timestampNow()
             let targetStart = serverTime + playbackDelayMs + 1_000 // safety cushion
             print("Calibration target start (server ms): \(targetStart) delay_ms=\(playbackDelayMs)")
@@ -140,17 +152,44 @@ final class CalibrationSession: ObservableObject {
 
             stage = .recording
             recordingTask = Task {
-                try await recorder.record(
+                print("Calibration recording started for \(recordDuration)s at sampleRate \(sequence.sampleRate)Hz")
+                return try await recorder.record(
                     for: recordDuration,
-                    sampleRate: sequence.sampleRate
+                    sampleRate: sequence.sampleRate,
+                    levelHandler: { [weak self] rms in
+                        guard let self else { return }
+                        self.handleMicLevel(rms)
+                    }
                 )
             }
             try await api.triggerPlayback(targetStartMs: targetStart)
             let recording = try await recordingTask?.value ?? []
+            let rms = Self.rms(recording)
+            let peak = recording.map { abs($0) }.max() ?? 0
+            let nonZero = recording.filter { $0 != 0 }.count
+            print("Calibration recording finished, samples captured: \(recording.count) nonZero=\(nonZero) rms=\(rms) peak=\(peak)")
 
             stage = .calculating
-            let measurement = detector.measure(recording: recording, sequence: sequence)
+            startCalculationProgressTimer(totalDuration: 5)
+            print("Calibration measuring latency...")
+            let startOffsetSamples = Int(sequence.sampleRate * Double(playbackDelayMs) / 1_000)
+            let measurement = detector.measure(
+                recording: recording,
+                sequence: sequence,
+                startOffsetSamples: startOffsetSamples
+            )
+            let detectionCount = measurement.detections.count
+            let topDetection = measurement.detections.max(by: { $0.correlation < $1.correlation })
+            print(
+                "Calibration measurement lat_ms=\(measurement.latencyMs) conf=\(measurement.confidence) detections=\(detectionCount) top_corr=\(topDetection?.correlation ?? 0) top_sample_idx=\(topDetection?.sampleIndex ?? 0)"
+            )
             latestMeasurement = measurement
+            calcProgressTask?.cancel()
+            calculationProgress = 1
+
+            if detectionCount == 0 {
+                print("Calibration detected zero chirps; submitting zero-confidence result for visibility.")
+            }
 
             stage = .sending
             let payload = CalibrationResultPayload(
@@ -162,12 +201,22 @@ final class CalibrationSession: ObservableObject {
             try await api.submitResult(payload)
             stage = .completed(measurement)
             progress = 1
+            calculationProgress = 1
         } catch {
+            print("Calibration failed: \(error.localizedDescription)")
             stage = .failed(error.localizedDescription)
             progressTask?.cancel()
+            calcProgressTask?.cancel()
             progress = 0
+            calculationProgress = 0
             recordingTask?.cancel()
         }
+    }
+
+    private static func rms(_ samples: [Float]) -> Float {
+        guard !samples.isEmpty else { return 0 }
+        let sumSquares = samples.reduce(0) { $0 + $1 * $1 }
+        return sqrt(sumSquares / Float(samples.count))
     }
 
     func setAmplitude(_ value: Double) {
@@ -177,7 +226,7 @@ final class CalibrationSession: ObservableObject {
             durationMs: config.durationMs,
             repetitions: config.repetitions,
             intervalMs: config.intervalMs,
-            amplitude: value
+            amplitude: max(0.0, min(1.0, value))
         )
     }
 
@@ -193,7 +242,7 @@ final class CalibrationSession: ObservableObject {
 
     private func recordingDuration(for sequence: ChirpSequence) -> TimeInterval {
         let chirpDuration = Double(sequence.samples.count) / sequence.sampleRate
-        return chirpDuration + detector.searchWindowSeconds + 0.05
+        return chirpDuration + detector.searchWindowSeconds + 0.5
     }
 
     private func startProgressTimer(totalDuration: TimeInterval) {
@@ -214,8 +263,38 @@ final class CalibrationSession: ObservableObject {
         }
     }
 
+    private func startCalculationProgressTimer(totalDuration: TimeInterval) {
+        calcProgressTask?.cancel()
+        let start = Date()
+        calcProgressTask = Task { [weak self] in
+            while let self = self, !Task.isCancelled {
+                let elapsed = Date().timeIntervalSince(start)
+                let fraction = min(1.0, elapsed / totalDuration)
+                await MainActor.run {
+                    self.calculationProgress = fraction
+                }
+                try? await Task.sleep(nanoseconds: 100_000_000)
+                if fraction >= 1.0 || self.stage.isTerminal || self.stage == .sending {
+                    break
+                }
+            }
+        }
+    }
+
     private static func timestampNow() -> UInt64 {
         UInt64(Date().timeIntervalSince1970 * 1_000)
+    }
+
+    private func handleMicLevel(_ rms: Float) {
+        let threshold: Float = 0.02
+        guard rms > threshold else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            if micPulse { return }
+            micPulse = true
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            micPulse = false
+        }
     }
 }
 
@@ -246,8 +325,31 @@ extension CalibrationSession {
     }
 }
 
+extension CalibrationSession {
+    func applyLatestMeasurement() async {
+        guard let measurement = latestMeasurement else { return }
+        stage = .sending
+        do {
+            let payload = CalibrationResultPayload(
+                timestamp: Self.timestampNow(),
+                latencyMs: measurement.latencyMs,
+                confidence: measurement.confidence
+            )
+            try await api.submitResult(payload)
+            stage = .completed(measurement)
+        } catch {
+            print("Apply latest failed: \(error.localizedDescription)")
+            stage = .failed(error.localizedDescription)
+        }
+    }
+}
+
 private struct SilentRecorder: MicrophoneRecorder {
-    func record(for duration: TimeInterval, sampleRate: Double) async throws -> [Float] {
+    func record(
+        for duration: TimeInterval,
+        sampleRate: Double,
+        levelHandler: @escaping (Float) -> Void
+    ) async throws -> [Float] {
         let frameCount = Int((duration * sampleRate).rounded(.up))
         return Array(repeating: 0, count: frameCount)
     }
@@ -261,7 +363,11 @@ private struct NoopCalibrationAPI: CalibrationAPI {
 }
 
 final class AVMicrophoneRecorder: MicrophoneRecorder {
-    func record(for duration: TimeInterval, sampleRate: Double) async throws -> [Float] {
+    func record(
+        for duration: TimeInterval,
+        sampleRate: Double,
+        levelHandler: @escaping (Float) -> Void
+    ) async throws -> [Float] {
         let engine = AVAudioEngine()
         let input = engine.inputNode
         let format = AVAudioFormat(
@@ -273,8 +379,9 @@ final class AVMicrophoneRecorder: MicrophoneRecorder {
 
         try AVAudioSession.sharedInstance().setCategory(
             .playAndRecord,
-            options: [.defaultToSpeaker, .allowBluetooth]
+            options: [.defaultToSpeaker, .allowBluetooth, .duckOthers]
         )
+        try AVAudioSession.sharedInstance().setMode(.measurement)
         try AVAudioSession.sharedInstance().setPreferredSampleRate(sampleRate)
         try AVAudioSession.sharedInstance().setActive(true, options: [])
 
@@ -303,6 +410,7 @@ final class AVMicrophoneRecorder: MicrophoneRecorder {
                 let frameLength = Int(buffer.frameLength)
                 let pointer = UnsafeBufferPointer(start: channelData[0], count: frameLength)
                 collected.append(contentsOf: pointer)
+                levelHandler(Self.bufferRMS(pointer))
 
                 if collected.count >= targetFrames {
                     let trimmed = Array(collected.prefix(targetFrames))
@@ -323,5 +431,12 @@ final class AVMicrophoneRecorder: MicrophoneRecorder {
                 finish(.success(trimmed))
             }
         }
+    }
+
+    private static func bufferRMS(_ buffer: UnsafeBufferPointer<Float>) -> Float {
+        guard !buffer.isEmpty else { return 0 }
+        var meanSquare: Float = 0
+        vDSP_measqv(buffer.baseAddress!, 1, &meanSquare, vDSP_Length(buffer.count))
+        return sqrt(meanSquare)
     }
 }
