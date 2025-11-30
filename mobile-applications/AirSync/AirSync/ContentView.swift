@@ -13,6 +13,7 @@ import SwiftUI
 struct ContentView: View {
     @Environment(\.openURL) private var openURL
     @StateObject private var browser = ReceiverBrowser()
+    @StateObject private var pairings = PairedReceiverStore()
     @State private var manualHost: String = ""
     @State private var microphonePermission: AVAudioSession.RecordPermission = AVAudioSession.sharedInstance().recordPermission
 
@@ -91,7 +92,9 @@ struct ContentView: View {
                             .foregroundStyle(.secondary)
                     } else {
                         ForEach(browser.receivers) { receiver in
-                            NavigationLink(destination: CalibrationView(session: .liveReceiverSession(baseURL: receiver.baseURL))) {
+                            NavigationLink(
+                                destination: ReceiverFlowView(receiver: receiver, store: pairings)
+                            ) {
                                 VStack(alignment: .leading) {
                                     Text(receiver.displayName)
                                         .font(.headline)
@@ -109,8 +112,10 @@ struct ContentView: View {
                         TextField("receiver.local or IP", text: $manualHost)
                             .textInputAutocapitalization(.never)
                             .disableAutocorrection(true)
-                        if let url = manualURL {
-                            NavigationLink("Calibrate", destination: CalibrationView(session: .liveReceiverSession(baseURL: url)))
+                        if let receiver = manualReceiver {
+                            NavigationLink("Calibrate") {
+                                ReceiverFlowView(receiver: receiver, store: pairings)
+                            }
                         }
                     }
                 }
@@ -130,9 +135,14 @@ struct ContentView: View {
         }
     }
 
-    private var manualURL: URL? {
-        guard !manualHost.isEmpty else { return nil }
-        return URL(string: "http://\(manualHost):5000")
+    private var manualReceiver: Receiver? {
+        guard !manualHost.isEmpty, let url = URL(string: "http://\(manualHost):5000") else { return nil }
+        return Receiver(
+            receiverID: manualHost,
+            name: manualHost,
+            host: url.host ?? manualHost,
+            port: url.port ?? 5000
+        )
     }
 
     private func refreshMicrophonePermission() {

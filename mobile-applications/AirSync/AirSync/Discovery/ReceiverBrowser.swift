@@ -67,7 +67,7 @@ final class ReceiverBrowser: ObservableObject {
     private static func receiver(from result: NWBrowser.Result) -> Receiver? {
         guard case let .service(name, _, domain, _) = result.endpoint else { return nil }
         let host = sanitizedHost(name: name, domain: domain)
-        return Receiver(name: name, host: host)
+        return Receiver(receiverID: host, name: name, host: host)
     }
 
     private static func sanitizedHost(name: String, domain: String) -> String {
