@@ -48,6 +48,11 @@ pub struct CalibrationRequestPayload {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct CalibrationReadyPayload {
+    pub timestamp: Option<u64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct CalibrationResultPayload {
     pub timestamp: u64,
     pub latency_ms: f32,
@@ -67,6 +72,13 @@ pub struct ReceiverState {
     calibration: Arc<dyn CalibrationSink + Send + Sync>,
     settings: Arc<dyn SettingsManager + Send + Sync>,
     playback: Arc<dyn PlaybackSink + Send + Sync>,
+    pending_playback: Arc<Mutex<Option<PendingPlayback>>>,
+}
+
+#[derive(Clone)]
+struct PendingPlayback {
+    chirp: ChirpConfig,
+    delay_ms: u64,
 }
 
 impl ReceiverState {
@@ -76,7 +88,7 @@ impl ReceiverState {
         settings: Arc<dyn SettingsManager + Send + Sync>,
         playback: Arc<dyn PlaybackSink + Send + Sync>,
     ) -> Self {
-        Self { info, calibration, settings, playback }
+        Self { info, calibration, settings, playback, pending_playback: Arc::new(Mutex::new(None)) }
     }
 }
 
@@ -124,6 +136,7 @@ pub fn router(state: ReceiverState) -> Router {
     Router::new()
         .route("/api/pairing/start", post(pairing_start))
         .route("/api/calibration/request", post(calibration_request))
+        .route("/api/calibration/ready", post(calibration_ready))
         .route("/api/calibration/result", post(calibration_result))
         .route("/api/settings", get(get_settings).post(update_settings))
         .route("/api/receiver/info", get(receiver_info))
@@ -142,20 +155,35 @@ async fn pairing_start(State(state): State<ReceiverState>, Json(_): Json<Pairing
 
 async fn calibration_request(State(state): State<ReceiverState>, Json(req): Json<CalibrationRequestPayload>) -> StatusCode {
     let delay = req.delay_ms.unwrap_or(2_000);
-    let received_at = now_millis();
-    let playback = state.playback.clone();
-    let chirp = req.chirp_config.clone();
+    let mut slot = state.pending_playback.lock().unwrap();
+    *slot = Some(PendingPlayback {
+        chirp: req.chirp_config.clone(),
+        delay_ms: delay,
+    });
+    StatusCode::OK
+}
 
+async fn calibration_ready(
+    State(state): State<ReceiverState>,
+    Json(req): Json<CalibrationReadyPayload>,
+) -> StatusCode {
+    let received_at = req.timestamp.unwrap_or_else(now_millis);
+    let pending = state.pending_playback.lock().unwrap().take();
+    let Some(pending) = pending else {
+        return StatusCode::BAD_REQUEST;
+    };
+
+    let playback = state.playback.clone();
     tokio::spawn(async move {
-        if delay > 0 {
-            tokio::time::sleep(Duration::from_millis(delay)).await;
+        if pending.delay_ms > 0 {
+            tokio::time::sleep(Duration::from_millis(pending.delay_ms)).await;
         }
         let start_at = now_millis();
         println!(
             "[calibration] scheduling playback - rx_ts={}ms start_ts={}ms delay_ms={}",
-            received_at, start_at, delay
+            received_at, start_at, pending.delay_ms
         );
-        if let Err(err) = playback.play(&chirp) {
+        if let Err(err) = playback.play(&pending.chirp) {
             eprintln!("[calibration] playback failed: {err:?}");
         }
     });
@@ -640,11 +668,24 @@ impl PlaybackSink for MockPlaybackSink {
             },
             "delay_ms": 1
         });
-        let response = app
+        let response = app.clone()
             .oneshot(
                 Request::post("/api/calibration/request")
                     .header("content-type", "application/json")
                     .body(Body::from(req_body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        assert_eq!(playback.call_count(), 0);
+
+        let response = app.clone()
+            .oneshot(
+                Request::post("/api/calibration/ready")
+                    .header("content-type", "application/json")
+                    .body(Body::from(json!({"timestamp": 5}).to_string()))
                     .unwrap(),
             )
             .await
@@ -668,7 +709,7 @@ impl PlaybackSink for MockPlaybackSink {
             },
             Arc::new(MockCalibrationSink::new()),
             Arc::new(MockSettingsManager::new()),
-            playback,
+            playback.clone(),
         );
         let app = router(state);
         let req_body = json!({
@@ -679,9 +720,10 @@ impl PlaybackSink for MockPlaybackSink {
                 "duration": 50,
                 "repetitions": 5,
                 "interval_ms": 500
-            }
+            },
+            "delay_ms": 1
         });
-        let response = app
+        let response = app.clone()
             .oneshot(
                 Request::post("/api/calibration/request")
                     .header("content-type", "application/json")
@@ -691,6 +733,33 @@ impl PlaybackSink for MockPlaybackSink {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
+        let response = app.clone()
+            .oneshot(
+                Request::post("/api/calibration/ready")
+                    .header("content-type", "application/json")
+                    .body(Body::from(json!({}).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        assert_eq!(playback.call_count(), 1);
+    }
+
+    #[tokio::test]
+    async fn calibration_ready_without_request_fails() {
+        let app = router(test_state());
+        let response = app
+            .oneshot(
+                Request::post("/api/calibration/ready")
+                    .header("content-type", "application/json")
+                    .body(Body::from(json!({}).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]

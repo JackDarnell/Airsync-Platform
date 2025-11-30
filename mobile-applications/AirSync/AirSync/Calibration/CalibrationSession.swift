@@ -29,6 +29,7 @@ struct CalibrationRequestPayload: Codable {
 protocol CalibrationAPI {
     func serverTimeMs() async throws -> UInt64
     func startPlayback(_ config: ChirpConfig, delayMs: UInt64) async throws
+    func triggerPlayback() async throws
     func submitResult(_ result: CalibrationResultPayload) async throws
 }
 
@@ -110,7 +111,8 @@ final class CalibrationSession: ObservableObject {
         microphoneAccess: @escaping () async throws -> Void = CalibrationSession.requestMicrophoneAccess
     ) {
         self.generator = generator ?? ChirpGenerator()
-        self.detector = detector ?? LatencyDetector()
+        let maxLatencyMs = Double(playbackDelayMs) + 500
+        self.detector = detector ?? LatencyDetector(maximumLatencyMs: maxLatencyMs)
         self.recorder = recorder
         self.api = api
         self.config = config
@@ -130,13 +132,16 @@ final class CalibrationSession: ObservableObject {
             print("Calibration clock skew (server-local): \(skew) ms")
 
             try await api.startPlayback(config, delayMs: playbackDelayMs)
-            let total = recordingDuration(for: sequence) + 0.5
+            let delaySeconds = Double(playbackDelayMs) / 1_000
+            let recordDuration = delaySeconds + recordingDuration(for: sequence)
+            let total = recordDuration + 0.5
             expectedDuration = total
             startProgressTimer(totalDuration: total)
 
             stage = .recording
+            try await api.triggerPlayback()
             let recording = try await recorder.record(
-                for: recordingDuration(for: sequence),
+                for: recordDuration,
                 sampleRate: sequence.sampleRate
             )
 
@@ -236,6 +241,7 @@ private struct SilentRecorder: MicrophoneRecorder {
 private struct NoopCalibrationAPI: CalibrationAPI {
     func serverTimeMs() async throws -> UInt64 { 0 }
     func startPlayback(_ config: ChirpConfig, delayMs: UInt64) async throws {}
+    func triggerPlayback() async throws {}
     func submitResult(_ result: CalibrationResultPayload) async throws {}
 }
 
