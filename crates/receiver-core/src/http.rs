@@ -164,6 +164,10 @@ async fn calibration_request(State(state): State<ReceiverState>, Json(req): Json
         delay_ms: delay,
         requested_at: now_millis(),
     });
+    println!(
+        "[calibration] received request timestamp={} delay_ms={}",
+        req.timestamp, delay
+    );
     StatusCode::OK
 }
 
@@ -174,6 +178,7 @@ async fn calibration_ready(
     let received_at = req.timestamp.unwrap_or_else(now_millis);
     let pending = state.pending_playback.lock().unwrap().take();
     let Some(pending) = pending else {
+        eprintln!("[calibration] ready called with no pending request");
         return StatusCode::BAD_REQUEST;
     };
 
@@ -187,7 +192,7 @@ async fn calibration_ready(
         }
         let start_at = now_millis();
         println!(
-            "[calibration] scheduling playback - rx_ts={}ms req_ts={}ms target_ts={}ms start_ts={}ms delay_ms={}",
+            "[calibration] scheduling playback - ready_rx_ts={}ms req_ts={}ms target_ts={}ms start_ts={}ms delay_ms={}",
             received_at, pending.requested_at, target, start_at, pending.delay_ms
         );
         if let Err(err) = playback.play(&pending.chirp) {
@@ -221,9 +226,9 @@ struct TimeSyncResponse {
 }
 
 async fn time_sync() -> Json<TimeSyncResponse> {
-    Json(TimeSyncResponse {
-        server_time_ms: now_millis(),
-    })
+    let now = now_millis();
+    println!("[time] /api/time called server_time_ms={}", now);
+    Json(TimeSyncResponse { server_time_ms: now })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -319,6 +324,11 @@ impl PlaybackSink for SystemPlaybackSink {
             cmd.args(["-D", dev.as_str()]);
         }
         cmd.args(["-q", wav_path.to_str().unwrap_or("")]);
+        println!(
+            "[calibration] invoking aplay device={} file={}",
+            if dev.is_empty() { "<default>" } else { dev.as_str() },
+            wav_path.to_string_lossy()
+        );
         let status = cmd.status();
         match status {
             Ok(s) if s.success() => Ok(()),
