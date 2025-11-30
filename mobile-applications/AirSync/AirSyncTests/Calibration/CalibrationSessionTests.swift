@@ -39,6 +39,7 @@ final class CalibrationSessionTests: XCTestCase {
 
         XCTAssertEqual(measurement.latencyMs, 45, accuracy: 7)
         XCTAssertEqual(api.startRequests, 1)
+        XCTAssertEqual(api.lastDelayMs, 800)
         XCTAssertNotNil(api.submittedResult)
         XCTAssertEqual(api.submittedResult?.latencyMs ?? 0, measurement.latencyMs, accuracy: 7)
         XCTAssertGreaterThan(api.submittedResult?.confidence ?? 0, 0.3)
@@ -60,6 +61,7 @@ final class CalibrationSessionTests: XCTestCase {
 
         if case .failed = session.stage {
             XCTAssertEqual(api.startRequests, 1)
+            XCTAssertEqual(api.lastDelayMs, 800)
         } else {
             XCTFail("Expected failure stage")
         }
@@ -90,9 +92,11 @@ private final class FailingRecorder: MicrophoneRecorder {
 private final class MockCalibrationAPI: CalibrationAPI {
     private(set) var startRequests = 0
     private(set) var submittedResult: CalibrationResultPayload?
+    private(set) var lastDelayMs: UInt64?
 
-    func startPlayback(_ config: ChirpConfig) async throws {
+    func startPlayback(_ config: ChirpConfig, delayMs: UInt64) async throws {
         startRequests += 1
+        lastDelayMs = delayMs
     }
 
     func submitResult(_ result: CalibrationResultPayload) async throws {

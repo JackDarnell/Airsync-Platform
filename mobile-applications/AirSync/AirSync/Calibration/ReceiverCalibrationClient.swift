@@ -9,10 +9,11 @@ final class ReceiverCalibrationClient: CalibrationAPI {
         self.session = session
     }
 
-    func startPlayback(_ config: ChirpConfig) async throws {
+    func startPlayback(_ config: ChirpConfig, delayMs: UInt64) async throws {
         let payload = CalibrationRequestPayload(
             timestamp: Self.timestampNow(),
-            chirpConfig: config
+            chirpConfig: config,
+            delayMs: delayMs
         )
 
         var request = URLRequest(url: endpoint(path: "api/calibration/request"))

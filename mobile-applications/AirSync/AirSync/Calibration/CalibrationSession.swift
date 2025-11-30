@@ -17,15 +17,17 @@ struct CalibrationResultPayload: Codable, Equatable {
 struct CalibrationRequestPayload: Codable {
     let timestamp: UInt64
     let chirpConfig: ChirpConfig
+    let delayMs: UInt64
 
     enum CodingKeys: String, CodingKey {
         case timestamp
         case chirpConfig = "chirp_config"
+        case delayMs = "delay_ms"
     }
 }
 
 protocol CalibrationAPI {
-    func startPlayback(_ config: ChirpConfig) async throws
+    func startPlayback(_ config: ChirpConfig, delayMs: UInt64) async throws
     func submitResult(_ result: CalibrationResultPayload) async throws
 }
 
@@ -96,6 +98,7 @@ final class CalibrationSession: ObservableObject {
     private let microphoneAccess: () async throws -> Void
     private var progressTask: Task<Void, Never>?
     private var expectedDuration: TimeInterval = 1.0
+    private let playbackDelayMs: UInt64 = 800
 
     init(
         generator: ChirpGenerator? = nil,
@@ -120,7 +123,7 @@ final class CalibrationSession: ObservableObject {
         do {
             try await microphoneAccess()
             let sequence = generator.makeSequence(config: config)
-            try await api.startPlayback(config)
+            try await api.startPlayback(config, delayMs: playbackDelayMs)
             let total = recordingDuration(for: sequence) + 0.5
             expectedDuration = total
             startProgressTimer(totalDuration: total)
@@ -225,7 +228,7 @@ private struct SilentRecorder: MicrophoneRecorder {
 }
 
 private struct NoopCalibrationAPI: CalibrationAPI {
-    func startPlayback(_ config: ChirpConfig) async throws {}
+    func startPlayback(_ config: ChirpConfig, delayMs: UInt64) async throws {}
     func submitResult(_ result: CalibrationResultPayload) async throws {}
 }
 

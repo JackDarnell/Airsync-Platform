@@ -42,6 +42,8 @@ struct PairingStartRequest {
 pub struct CalibrationRequestPayload {
     pub timestamp: u64,
     pub chirp_config: ChirpConfig,
+    #[serde(default)]
+    pub delay_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -137,6 +139,10 @@ async fn pairing_start(State(state): State<ReceiverState>, Json(_): Json<Pairing
 }
 
 async fn calibration_request(State(state): State<ReceiverState>, Json(req): Json<CalibrationRequestPayload>) -> StatusCode {
+    let delay = req.delay_ms.unwrap_or(800);
+    if delay > 0 {
+        tokio::time::sleep(Duration::from_millis(delay)).await;
+    }
     match state.playback.play(&req.chirp_config) {
         Ok(_) => StatusCode::OK,
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR,
@@ -599,7 +605,8 @@ impl PlaybackSink for MockPlaybackSink {
                 "duration": 50,
                 "repetitions": 5,
                 "interval_ms": 500
-            }
+            },
+            "delay_ms": 1
         });
         let response = app
             .oneshot(

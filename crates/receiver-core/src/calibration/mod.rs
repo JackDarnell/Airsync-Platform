@@ -38,14 +38,25 @@ pub struct SystemdShairportController;
 
 impl ShairportController for SystemdShairportController {
     fn restart(&self) -> Result<()> {
-        let status = Command::new("sudo")
+        let try_sudo = Command::new("sudo")
             .args(["-n", "/usr/bin/systemctl", "restart", "shairport-sync"])
-            .status()?;
+            .status();
 
-        if status.success() {
-            Ok(())
-        } else {
-            Err(anyhow!("systemctl restart shairport-sync failed"))
+        match try_sudo {
+            Ok(status) if status.success() => Ok(()),
+            _ => {
+                let direct = Command::new("/usr/bin/systemctl")
+                    .args(["restart", "shairport-sync"])
+                    .status();
+                match direct {
+                    Ok(status) if status.success() => Ok(()),
+                    _ => {
+                        // Do not block calibration if restart fails; log and continue
+                        eprintln!("shairport-sync restart failed (ignored)");
+                        Ok(())
+                    }
+                }
+            }
         }
     }
 }
