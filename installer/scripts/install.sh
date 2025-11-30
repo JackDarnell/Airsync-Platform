@@ -474,11 +474,18 @@ install_airsync() {
     cargo build --release --bin airsync-receiver-service
     cargo build --release --bin generate-chirp-wav
 
+    # Stop running receiver service to avoid "text file busy" during binary replacement
+    local RECEIVER_WAS_ACTIVE=0
+    if systemctl is-active --quiet airsync-receiver.service 2>/dev/null; then
+        RECEIVER_WAS_ACTIVE=1
+        systemctl stop airsync-receiver.service 2>/dev/null || true
+    fi
+
     # Install binaries
-    cp target/release/detect-hardware /usr/local/bin/airsync-detect
-    cp target/release/generate-config /usr/local/bin/airsync-generate-config
-    cp target/release/airsync-receiver-service /usr/local/bin/airsync-receiver-service
-    cp target/release/generate-chirp-wav /usr/local/bin/airsync-generate-chirp-wav
+    install -m 0755 target/release/detect-hardware /usr/local/bin/airsync-detect
+    install -m 0755 target/release/generate-config /usr/local/bin/airsync-generate-config
+    install -m 0755 target/release/airsync-receiver-service /usr/local/bin/airsync-receiver-service
+    install -m 0755 target/release/generate-chirp-wav /usr/local/bin/airsync-generate-chirp-wav
     chmod +x /usr/local/bin/airsync-detect
     chmod +x /usr/local/bin/airsync-generate-config
     chmod +x /usr/local/bin/airsync-receiver-service
@@ -496,6 +503,11 @@ install_airsync() {
     mkdir -p /usr/local/share/airsync
     chown "$SERVICE_USER:$SERVICE_USER" /usr/local/share/airsync
     /usr/local/bin/airsync-generate-chirp-wav /usr/local/share/airsync/chirp.wav 48000 1.0 || true
+
+    # Restart receiver service if it was running
+    if [ "$RECEIVER_WAS_ACTIVE" -eq 1 ]; then
+        systemctl start airsync-receiver.service 2>/dev/null || true
+    fi
 
     echo -e "${GREEN}✓${NC} AirSync daemon installed"
 }
