@@ -324,8 +324,9 @@ impl SystemPlaybackSink {
 
 impl PlaybackSink for SystemPlaybackSink {
     fn play(&self, chirp: &ChirpConfig) -> Result<()> {
-        let wav_path = if let Some(path) = &self.pregen_path {
-            path.clone()
+        let use_pregen = chirp.amplitude.unwrap_or(1.0) >= 0.99 && self.pregen_path.is_some();
+        let wav_path = if use_pregen {
+            self.pregen_path.clone().unwrap()
         } else {
             let file = self.write_wave(chirp)?;
             file.into_temp_path().keep()?
