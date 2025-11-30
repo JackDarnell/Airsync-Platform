@@ -2,6 +2,7 @@ use std::net::SocketAddr;
 use std::path::Path;
 use std::process::Command;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::calibration::{CalibrationApplier, ConfigWriter, ShairportController};
 use crate::airplay::{render_config_file, ShairportConfig};
@@ -126,6 +127,7 @@ pub fn router(state: ReceiverState) -> Router {
         .route("/api/calibration/result", post(calibration_result))
         .route("/api/settings", get(get_settings).post(update_settings))
         .route("/api/receiver/info", get(receiver_info))
+        .route("/api/time", get(time_sync))
         .with_state(state)
 }
 
@@ -139,14 +141,26 @@ async fn pairing_start(State(state): State<ReceiverState>, Json(_): Json<Pairing
 }
 
 async fn calibration_request(State(state): State<ReceiverState>, Json(req): Json<CalibrationRequestPayload>) -> StatusCode {
-    let delay = req.delay_ms.unwrap_or(800);
-    if delay > 0 {
-        tokio::time::sleep(Duration::from_millis(delay)).await;
-    }
-    match state.playback.play(&req.chirp_config) {
-        Ok(_) => StatusCode::OK,
-        Err(_) => StatusCode::INTERNAL_SERVER_ERROR,
-    }
+    let delay = req.delay_ms.unwrap_or(2_000);
+    let received_at = now_millis();
+    let playback = state.playback.clone();
+    let chirp = req.chirp_config.clone();
+
+    tokio::spawn(async move {
+        if delay > 0 {
+            tokio::time::sleep(Duration::from_millis(delay)).await;
+        }
+        let start_at = now_millis();
+        println!(
+            "[calibration] scheduling playback - rx_ts={}ms start_ts={}ms delay_ms={}",
+            received_at, start_at, delay
+        );
+        if let Err(err) = playback.play(&chirp) {
+            eprintln!("[calibration] playback failed: {err:?}");
+        }
+    });
+
+    StatusCode::OK
 }
 
 async fn calibration_result(
@@ -164,6 +178,17 @@ async fn calibration_result(
 
 async fn receiver_info(State(state): State<ReceiverState>) -> Json<ReceiverInfo> {
     Json(state.info.clone())
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct TimeSyncResponse {
+    server_time_ms: u64,
+}
+
+async fn time_sync() -> Json<TimeSyncResponse> {
+    Json(TimeSyncResponse {
+        server_time_ms: now_millis(),
+    })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -348,6 +373,13 @@ pub fn render_avahi_service(name: &str, receiver_id: &str, port: u16, caps: &[&s
         caps = caps_str,
         id = receiver_id
     )
+}
+
+fn now_millis() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_else(|_| Duration::from_secs(0))
+        .as_millis() as u64
 }
 
 #[cfg(test)]
@@ -618,6 +650,7 @@ impl PlaybackSink for MockPlaybackSink {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
+        tokio::time::sleep(Duration::from_millis(20)).await;
         assert_eq!(playback.call_count(), 1);
         let last = playback.last().unwrap();
         assert_eq!(last.start_freq, 2000);
@@ -625,7 +658,7 @@ impl PlaybackSink for MockPlaybackSink {
     }
 
     #[tokio::test]
-    async fn calibration_request_failure_returns_500() {
+    async fn calibration_request_failure_logs_and_returns_ok() {
         let playback = Arc::new(MockPlaybackSink { last: Arc::new(Mutex::new(None)), calls: Arc::new(Mutex::new(0)), fail: true });
         let state = ReceiverState::new(
             ReceiverInfo {
@@ -657,7 +690,20 @@ impl PlaybackSink for MockPlaybackSink {
             )
             .await
             .unwrap();
-        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn time_sync_returns_server_time() {
+        let app = router(test_state());
+        let response = app
+            .oneshot(Request::get("/api/time").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let payload: super::TimeSyncResponse = serde_json::from_slice(&body).unwrap();
+        assert!(payload.server_time_ms > 0);
     }
 
     #[test]

@@ -9,6 +9,13 @@ final class ReceiverCalibrationClient: CalibrationAPI {
         self.session = session
     }
 
+    func serverTimeMs() async throws -> UInt64 {
+        let request = URLRequest(url: endpoint(path: "api/time"))
+        let (data, _) = try await session.data(for: request)
+        let response = try JSONDecoder().decode(TimeSyncResponse.self, from: data)
+        return response.serverTimeMs
+    }
+
     func startPlayback(_ config: ChirpConfig, delayMs: UInt64) async throws {
         let payload = CalibrationRequestPayload(
             timestamp: Self.timestampNow(),
@@ -39,5 +46,13 @@ final class ReceiverCalibrationClient: CalibrationAPI {
 
     private static func timestampNow() -> UInt64 {
         UInt64(Date().timeIntervalSince1970 * 1_000)
+    }
+}
+
+private struct TimeSyncResponse: Decodable {
+    let serverTimeMs: UInt64
+
+    enum CodingKeys: String, CodingKey {
+        case serverTimeMs = "server_time_ms"
     }
 }
