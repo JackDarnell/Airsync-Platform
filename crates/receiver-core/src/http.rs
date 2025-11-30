@@ -220,34 +220,35 @@ impl SystemPlaybackSink {
         Self { sample_rate, gain, config }
     }
 
-    fn write_wave(&self, chirp: &ChirpConfig) -> Result<std::path::PathBuf> {
+    fn write_wave(&self, chirp: &ChirpConfig) -> Result<tempfile::NamedTempFile> {
         let file = tempfile::NamedTempFile::new()?;
-        let path = file.path().to_path_buf();
         let spec = hound::WavSpec {
             channels: 1,
             sample_rate: self.sample_rate,
             bits_per_sample: 16,
             sample_format: hound::SampleFormat::Int,
         };
-        let mut writer = hound::WavWriter::create(&path, spec)?;
+        let mut writer = hound::WavWriter::create(file.path(), spec)?;
         let samples = generate_chirp_samples(chirp, self.sample_rate, self.gain);
         for s in samples {
             writer.write_sample(s)?;
         }
         writer.finalize()?;
-        Ok(path)
+        Ok(file)
     }
 }
 
 impl PlaybackSink for SystemPlaybackSink {
     fn play(&self, chirp: &ChirpConfig) -> Result<()> {
-        let wav_path = self.write_wave(chirp)?;
+        let file = self.write_wave(chirp)?;
+        let wav_path = file.path().to_path_buf();
         let mut cmd = Command::new("aplay");
         let dev = { self.config.lock().unwrap().output_device.clone() };
-        cmd.args(["-D", dev.as_str()]);
+        if !dev.is_empty() {
+            cmd.args(["-D", dev.as_str()]);
+        }
         cmd.args(["-q", wav_path.to_str().unwrap_or("")]);
         let status = cmd.status();
-        std::fs::remove_file(&wav_path).ok();
         match status {
             Ok(s) if s.success() => Ok(()),
             Ok(s) => Err(anyhow!("aplay failed with status {}", s)),
@@ -417,12 +418,12 @@ mod tests {
             self.last.lock().unwrap().clone()
         }
 
-        fn call_count(&self) -> u32 {
-            *self.calls.lock().unwrap()
-        }
+    fn call_count(&self) -> u32 {
+        *self.calls.lock().unwrap()
     }
+}
 
-    impl PlaybackSink for MockPlaybackSink {
+impl PlaybackSink for MockPlaybackSink {
         fn play(&self, chirp: &ChirpConfig) -> Result<()> {
             *self.calls.lock().unwrap() += 1;
             *self.last.lock().unwrap() = Some(chirp.clone());
@@ -634,9 +635,7 @@ mod tests {
 
     #[tokio::test]
     async fn calibration_request_failure_returns_500() {
-        let mut playback = MockPlaybackSink::new();
-        playback.fail = true;
-        let playback = Arc::new(playback);
+        let playback = Arc::new(MockPlaybackSink { last: Arc::new(Mutex::new(None)), calls: Arc::new(Mutex::new(0)), fail: true });
         let state = ReceiverState::new(
             ReceiverInfo {
                 receiver_id: "rx-1".into(),
@@ -668,6 +667,22 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    #[test]
+    fn chirp_samples_have_energy() {
+        let cfg = ChirpConfig {
+            start_freq: 1000,
+            end_freq: 10000,
+            duration: 100,
+            repetitions: 2,
+            interval_ms: 100,
+        };
+        let samples = generate_chirp_samples(&cfg, 48_000, 1.0);
+        assert!(samples.iter().any(|&s| s != 0));
+        // Ensure spacing for interval
+        let expected_min = (cfg.duration as f32 / 1000.0 * 48000.0) as usize * 2;
+        assert!(samples.len() >= expected_min);
     }
 
     #[test]

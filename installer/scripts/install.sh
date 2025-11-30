@@ -323,6 +323,12 @@ install_receiver_service_unit() {
         return
     fi
 
+    # Allow airsync user to restart shairport-sync without a password
+    cat >/etc/sudoers.d/airsync-shairport <<'EOF'
+airsync ALL=NOPASSWD: /usr/bin/systemctl restart shairport-sync
+EOF
+    chmod 440 /etc/sudoers.d/airsync-shairport
+
     cat >/etc/systemd/system/airsync-receiver.service <<'EOF'
 [Unit]
 Description=AirSync Receiver HTTP Service
