@@ -185,7 +185,15 @@ async fn calibration_ready(
     let playback = state.playback.clone();
     tokio::spawn(async move {
         let now = now_millis();
-        let target = req.target_start_ms.unwrap_or_else(|| now + pending.delay_ms);
+        let mut target = req.target_start_ms.unwrap_or_else(|| now + pending.delay_ms);
+        let min_future = now + 1_500;
+        if target < min_future {
+            println!(
+                "[calibration] target in past/soon; bumping target from {} to {}",
+                target, min_future
+            );
+            target = min_future;
+        }
         let wait_ms = target.saturating_sub(now);
         if wait_ms > 0 {
             tokio::time::sleep(Duration::from_millis(wait_ms)).await;
@@ -708,7 +716,7 @@ impl PlaybackSink for MockPlaybackSink {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
-        tokio::time::sleep(Duration::from_millis(20)).await;
+        tokio::time::sleep(Duration::from_millis(1800)).await;
         assert_eq!(playback.call_count(), 1);
         let last = playback.last().unwrap();
         assert_eq!(last.start_freq, 2000);
@@ -760,7 +768,7 @@ impl PlaybackSink for MockPlaybackSink {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
-        tokio::time::sleep(Duration::from_millis(20)).await;
+        tokio::time::sleep(Duration::from_millis(1800)).await;
         assert_eq!(playback.call_count(), 1);
     }
 

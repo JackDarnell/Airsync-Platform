@@ -100,7 +100,7 @@ final class CalibrationSession: ObservableObject {
     private let microphoneAccess: () async throws -> Void
     private var progressTask: Task<Void, Never>?
     private var expectedDuration: TimeInterval = 1.0
-    private let playbackDelayMs: UInt64 = 2_000
+    private let playbackDelayMs: UInt64 = 3_000
 
     init(
         generator: ChirpGenerator? = nil,
@@ -127,7 +127,7 @@ final class CalibrationSession: ObservableObject {
             try await microphoneAccess()
             let sequence = generator.makeSequence(config: config)
             let serverTime = (try? await api.serverTimeMs()) ?? Self.timestampNow()
-            let targetStart = serverTime + playbackDelayMs
+            let targetStart = serverTime + playbackDelayMs + 1_000 // safety cushion
             print("Calibration target start (server ms): \(targetStart) delay_ms=\(playbackDelayMs)")
 
             try await api.startPlayback(config, delayMs: playbackDelayMs)
