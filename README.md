@@ -6,32 +6,29 @@ Built in **Rust** for maximum performance, minimal memory footprint, and memory 
 
 ## Current State
 
-**Status**: Foundation phase - hardware detection complete
-
-The project is in its initial setup phase. We are following strict TDD principles where every component is tested before implementation.
+**Status**: Receiver service and pairing flow implemented; installer provisions systemd + Avahi.
 
 ### What's Complete
 
 - ✅ Phase 1 specification document
 - ✅ Cargo workspace structure
 - ✅ Shared protocol types (device, messages, calibration)
-- ✅ Hardware detection module (test-first, 8/8 tests passing)
-  - CPU core detection
-  - RAM detection
-  - Board identification (Pi Zero 2 W, Pi 4, Pi 5)
+- ✅ Hardware detection module (test-first)
+  - CPU core/RAM detection, board identification (Pi Zero 2 W, Pi 4, Pi 5)
   - Audio output detection (I2S, USB, HDMI, Headphone)
-  - Default system readers for production use
-- ✅ Hardware profile selection (5/5 tests passing)
-  - Minimal profile (256MB+): AirPlay only
-  - Standard profile (1GB+): AirPlay + Web UI
-  - Enhanced profile (4GB+): All features including local TTS
-- ✅ Shairport-sync config generator (10/10 tests passing)
-  - Dynamic config generation based on hardware profile
-  - Audio output device mapping
-  - Interpolation method selection (basic/soxr)
-  - Buffer sizing for performance/quality tradeoff
-  - Cover art enable/disable based on RAM
-- ✅ CLI tool for hardware detection (`detect-hardware`)
+- ✅ Shairport-sync config generator
+  - Dynamic config generation with audio output mapping, soxr interpolation, buffer sizing, cover art
+- ✅ Receiver HTTP service (Axum)
+  - Pairing endpoints: `/api/pairing/start`, `/api/pairing/confirm` (no tokens; soft code confirmation)
+  - Calibration endpoints: `/api/calibration/request`, `/api/calibration/result` apply latency via shairport config + restart
+  - Settings endpoints: `/api/settings` (GET/POST) update shairport config and restart shairport-sync
+  - Receiver info + Avahi TXT helpers for `_airsync._tcp`
+- ✅ CLI tools: `airsync-detect`, `airsync-generate-config`, `airsync-receiver-service` binary
+- ✅ Installer provisions
+  - Builds/installs receiver service
+  - Installs systemd unit for receiver service and shairport-sync
+  - Publishes Avahi `_airsync._tcp` with caps/name/id
+  - Creates state dir `/var/lib/airsync` for receiver_id/cache
 
 ### What's Next
 
@@ -181,29 +178,18 @@ Tests follow the 80/15/5 pyramid:
 ### Current Test Results
 
 ```
-✓ 23 tests passing across 2 crates
+✓ 37 tests passing across workspace
 
-Hardware Detection (8 tests):
-  ✓ CPU core counting
-  ✓ RAM detection and parsing
-  ✓ Board identification (Pi Zero 2 W, Pi 4, Pi 5)
-  ✓ Audio output detection (I2S, USB, Headphone)
-  ✓ Preferred output selection
+Receiver Core (31 tests):
+  ✓ Hardware detection (CPU/RAM/board/audio outputs)
+  ✓ Shairport config generation/rendering
+  ✓ Calibration applier (offset/clamping/restart)
+  ✓ Pairing flow (start/confirm with TTL)
+  ✓ Settings API (updates config + restarts shairport)
+  ✓ Avahi service rendering and receiver_id persistence
 
-Hardware Profile Selection (5 tests):
-  ✓ Minimal profile selection (low RAM)
-  ✓ Standard profile selection (1GB RAM)
-  ✓ Enhanced profile selection (4GB RAM)
-  ✓ Fallback to minimal for insufficient resources
-  ✓ Highest fitting profile selection
-
-Shairport-Sync Config Generation (10 tests):
-  ✓ Interpolation method selection
-  ✓ Buffer length optimization
-  ✓ Cover art enable/disable
-  ✓ Custom device naming
-  ✓ Audio output device mapping (I2S, USB, HDMI)
-  ✓ Config file rendering
+Shared Protocol (6 tests):
+  ✓ Device capability helpers and validation
 ```
 
 ## Project Structure
@@ -213,7 +199,7 @@ airsync/
 ├── crates/
 │   ├── receiver-core/        # Main receiver daemon (Rust)
 │   └── shared-protocol/      # Cross-platform types (Rust)
-├── installer/                # One-command installation ✅
+├── installer/                # One-command installation ✅ (installs receiver + shairport + Avahi)
 │   ├── scripts/install.sh    # Main installer script
 │   └── README.md             # Installation guide
 ├── docker/                   # Docker Pi simulator ✅
@@ -230,10 +216,9 @@ airsync/
 ### Crate Overview
 
 - **airsync-shared-protocol**: Type definitions for hardware capabilities, WebSocket messages, and calibration protocol
-- **airsync-receiver-core**: Main daemon with hardware detection, AirPlay integration, and calibration engine
-  - Binary: `detect-hardware` - CLI tool to detect and display hardware capabilities
-  - Module: `hardware` - Runtime hardware detection and capability assessment
-  - Module: `airplay` - Shairport-sync configuration generation and process management
+- **airsync-receiver-core**: Receiver HTTP service, hardware detection, shairport config, calibration engine, pairing/settings API
+  - Binaries: `detect-hardware`, `generate-config`, `airsync-receiver-service`
+  - Modules: `hardware` (detection), `airplay` (config), `http` (pairing/calibration/settings)
 
 ## Development Workflow
 
