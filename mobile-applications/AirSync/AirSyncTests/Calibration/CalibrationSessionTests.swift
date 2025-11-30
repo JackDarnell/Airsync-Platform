@@ -41,6 +41,7 @@ final class CalibrationSessionTests: XCTestCase {
         XCTAssertEqual(api.serverTimeRequests, 1)
         XCTAssertEqual(api.startRequests, 1)
         XCTAssertEqual(api.triggerRequests, 1)
+        XCTAssertEqual(api.lastTargetStartMs, 3_000)
         XCTAssertEqual(api.lastDelayMs, 2_000)
         XCTAssertNotNil(api.submittedResult)
         XCTAssertEqual(api.submittedResult?.latencyMs ?? 0, measurement.latencyMs, accuracy: 7)
@@ -65,6 +66,7 @@ final class CalibrationSessionTests: XCTestCase {
             XCTAssertEqual(api.serverTimeRequests, 1)
             XCTAssertEqual(api.startRequests, 1)
             XCTAssertEqual(api.triggerRequests, 1)
+            XCTAssertEqual(api.lastTargetStartMs, 3_000)
             XCTAssertEqual(api.lastDelayMs, 2_000)
         } else {
             XCTFail("Expected failure stage")
@@ -99,6 +101,7 @@ private final class MockCalibrationAPI: CalibrationAPI {
     private(set) var lastDelayMs: UInt64?
     private(set) var serverTimeRequests = 0
     private(set) var triggerRequests = 0
+    private(set) var lastTargetStartMs: UInt64?
 
     func serverTimeMs() async throws -> UInt64 {
         serverTimeRequests += 1
@@ -110,8 +113,9 @@ private final class MockCalibrationAPI: CalibrationAPI {
         lastDelayMs = delayMs
     }
 
-    func triggerPlayback() async throws {
+    func triggerPlayback(targetStartMs: UInt64) async throws {
         triggerRequests += 1
+        lastTargetStartMs = targetStartMs
     }
 
     func submitResult(_ result: CalibrationResultPayload) async throws {

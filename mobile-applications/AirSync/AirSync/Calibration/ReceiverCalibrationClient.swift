@@ -31,10 +31,15 @@ final class ReceiverCalibrationClient: CalibrationAPI {
         _ = try await session.data(for: request)
     }
 
-    func triggerPlayback() async throws {
+    func triggerPlayback(targetStartMs: UInt64) async throws {
         var request = URLRequest(url: endpoint(path: "api/calibration/ready"))
         request.httpMethod = "POST"
-        request.httpBody = try JSONEncoder().encode(CalibrationReadyPayload(timestamp: Self.timestampNow()))
+        request.httpBody = try JSONEncoder().encode(
+            CalibrationReadyPayload(
+                timestamp: Self.timestampNow(),
+                targetStartMs: targetStartMs
+            )
+        )
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
         _ = try await session.data(for: request)
@@ -68,4 +73,10 @@ private struct TimeSyncResponse: Decodable {
 
 private struct CalibrationReadyPayload: Encodable {
     let timestamp: UInt64
+    let targetStartMs: UInt64
+
+    enum CodingKeys: String, CodingKey {
+        case timestamp
+        case targetStartMs = "target_start_ms"
+    }
 }
