@@ -123,6 +123,7 @@ final class CalibrationSession: ObservableObject {
         progressTask?.cancel()
         progress = 0
         stage = .requestingPlayback
+        var recordingTask: Task<[Float], Error>?
         do {
             try await microphoneAccess()
             let sequence = generator.makeSequence(config: config)
@@ -132,17 +133,20 @@ final class CalibrationSession: ObservableObject {
 
             try await api.startPlayback(config, delayMs: playbackDelayMs)
             let delaySeconds = Double(playbackDelayMs) / 1_000
-            let recordDuration = delaySeconds + recordingDuration(for: sequence)
+            let recordDuration = delaySeconds + recordingDuration(for: sequence) + 0.2
             let total = recordDuration + 0.5
             expectedDuration = total
             startProgressTimer(totalDuration: total)
 
             stage = .recording
+            recordingTask = Task {
+                try await recorder.record(
+                    for: recordDuration,
+                    sampleRate: sequence.sampleRate
+                )
+            }
             try await api.triggerPlayback(targetStartMs: targetStart)
-            let recording = try await recorder.record(
-                for: recordDuration,
-                sampleRate: sequence.sampleRate
-            )
+            let recording = try await recordingTask?.value ?? []
 
             stage = .calculating
             let measurement = detector.measure(recording: recording, sequence: sequence)
@@ -162,6 +166,7 @@ final class CalibrationSession: ObservableObject {
             stage = .failed(error.localizedDescription)
             progressTask?.cancel()
             progress = 0
+            recordingTask?.cancel()
         }
     }
 
