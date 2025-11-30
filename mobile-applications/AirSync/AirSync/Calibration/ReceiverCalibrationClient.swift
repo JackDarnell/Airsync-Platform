@@ -15,8 +15,15 @@ final class ReceiverCalibrationClient: CalibrationAPI {
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             throw URLError(.badServerResponse)
         }
-        let wrapper = try JSONDecoder().decode(CalibrationSpecResponse.self, from: data)
-        return wrapper.spec
+        do {
+            let wrapper = try JSONDecoder().decode(CalibrationSpecResponse.self, from: data)
+            return wrapper.spec
+        } catch {
+            if let body = String(data: data, encoding: .utf8) {
+                print("Failed to decode calibration spec, body=\(body)")
+            }
+            throw error
+        }
     }
 
     func serverTimeMs() async throws -> UInt64 {

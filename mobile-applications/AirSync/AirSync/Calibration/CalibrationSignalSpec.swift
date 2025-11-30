@@ -13,17 +13,45 @@ enum MarkerKind: Decodable, Equatable {
     }
 
     init(from decoder: Decoder) throws {
+        // Accept either `"click"`/`"chirp"` strings or nested objects as sent by the receiver (serde untagged).
+        if let single = try? decoder.singleValueContainer(), let value = try? single.decode(String.self) {
+            switch value {
+            case "click":
+                self = .click
+                return
+            case "chirp":
+                throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Chirp requires parameters"))
+            default:
+                break
+            }
+        }
+
         let container = try decoder.container(keyedBy: CodingKeys.self)
+
         if container.contains(.click) {
             self = .click
-        } else if container.contains(.chirp) || container.contains(.startFreq) {
+            return
+        }
+
+        // serde represents the chirp variant as { "chirp": { "start_freq": ..., ... } }
+        if container.contains(.chirp) {
+            let nested = try container.nestedContainer(keyedBy: CodingKeys.self, forKey: .chirp)
+            let start = try nested.decode(UInt32.self, forKey: .startFreq)
+            let end = try nested.decode(UInt32.self, forKey: .endFreq)
+            let dur = try nested.decode(UInt32.self, forKey: .durationMs)
+            self = .chirp(startFreq: start, endFreq: end, durationMs: dur)
+            return
+        }
+
+        if container.contains(.startFreq) {
             let start = try container.decode(UInt32.self, forKey: .startFreq)
             let end = try container.decode(UInt32.self, forKey: .endFreq)
             let dur = try container.decode(UInt32.self, forKey: .durationMs)
             self = .chirp(startFreq: start, endFreq: end, durationMs: dur)
-        } else {
-            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Unknown marker kind"))
+            return
         }
+
+        throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Unknown marker kind"))
     }
 }
 

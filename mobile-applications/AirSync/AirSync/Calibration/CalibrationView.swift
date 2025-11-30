@@ -22,6 +22,7 @@ struct CalibrationView: View {
             }
 
             statusView
+            frequencyRangeSection
             progressSection
             calculationSection
             volumeSection
@@ -89,6 +90,20 @@ struct CalibrationView: View {
             Text("Volume: \(Int(volume * 100))%")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    private var frequencyRangeSection: some View {
+        Group {
+            if let range = session.frequencyRange {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Listening Range")
+                        .font(.headline)
+                    Text("\(Int(range.0)) Hz – \(Int(range.1)) Hz")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
         }
     }
 

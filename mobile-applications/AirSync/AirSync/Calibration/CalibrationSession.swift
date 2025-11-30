@@ -101,6 +101,7 @@ final class CalibrationSession: ObservableObject {
     @Published private(set) var progress: Double = 0
     @Published private(set) var calculationProgress: Double = 0
     @Published private(set) var micPulse: Bool = false
+    @Published private(set) var frequencyRange: (Double, Double)?
 
     private let generator: ChirpGenerator
     private let detector: LatencyDetector
@@ -148,12 +149,13 @@ final class CalibrationSession: ObservableObject {
             // Structured-only: require spec and request structured playback
             let spec = try await api.fetchCalibrationSpec()
             let sampleRate = Double(spec.sampleRate)
+            frequencyRange = Self.frequencyRange(from: spec)
 
             try await api.startPlayback(config, delayMs: playbackDelayMs, structured: true)
             let delaySeconds = Double(playbackDelayMs) / 1_000
             let lengthSeconds = Double(spec.lengthSamples) / Double(spec.sampleRate)
-            let recordDuration: TimeInterval = delaySeconds + lengthSeconds + 1.0
-            let total = recordDuration + 0.5
+            let recordDuration: TimeInterval = delaySeconds + lengthSeconds + 2.5
+            let total = recordDuration + 1.0
             expectedDuration = total
             startProgressTimer(totalDuration: total)
 
@@ -177,7 +179,7 @@ final class CalibrationSession: ObservableObject {
             print("Calibration recording finished, samples captured: \(recording.count) nonZero=\(nonZero) rms=\(rms) peak=\(peak)")
 
             stage = .calculating
-            startCalculationProgressTimer(totalDuration: 5)
+            startCalculationProgressTimer(totalDuration: 8)
             print("Calibration measuring latency...")
             let measurement: LatencyMeasurement
             let startOffsetSamples = Int(Double(playbackDelayMs) / 1000.0 * Double(spec.sampleRate))
@@ -304,6 +306,19 @@ final class CalibrationSession: ObservableObject {
             try? await Task.sleep(nanoseconds: 150_000_000)
             micPulse = false
         }
+    }
+
+    private static func frequencyRange(from spec: CalibrationSignalSpec) -> (Double, Double)? {
+        let freqs = spec.markers.compactMap { marker -> Double? in
+            switch marker.kind {
+            case .click:
+                return nil
+            case let .chirp(startFreq, endFreq, _):
+                return Double(min(startFreq, endFreq))
+            }
+        }
+        guard let min = freqs.min(), let max = freqs.max() else { return nil }
+        return (min, max)
     }
 }
 
