@@ -1,20 +1,6 @@
 import Foundation
 
 struct PairingStartResponse: Codable, Equatable {
-    let pairingID: String
-    let code: String
-    let receiverID: String
-    let ttlSeconds: Int
-
-    enum CodingKeys: String, CodingKey {
-        case pairingID = "pairing_id"
-        case code
-        case receiverID = "receiver_id"
-        case ttlSeconds = "ttl_seconds"
-    }
-}
-
-struct PairingConfirmResponse: Codable, Equatable {
     let receiverID: String
     let capabilities: [String]
 
@@ -69,29 +55,6 @@ final class ReceiverPairingClient {
 
         do {
             return try JSONDecoder().decode(PairingStartResponse.self, from: data)
-        } catch {
-            throw PairingError.decodingFailed
-        }
-    }
-
-    func confirm(pairingID: String, code: String) async throws -> PairingConfirmResponse {
-        var request = URLRequest(url: baseURL.appendingPathComponent("api/pairing/confirm"))
-        request.httpMethod = "POST"
-        let body: [String: String] = [
-            "pairing_id": pairingID,
-            "code": code,
-        ]
-        request.httpBody = try JSONEncoder().encode(body)
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-
-        let (data, response) = try await perform(request: request)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            let status = (response as? HTTPURLResponse)?.statusCode ?? -1
-            throw PairingError.badStatus(status)
-        }
-
-        do {
-            return try JSONDecoder().decode(PairingConfirmResponse.self, from: data)
         } catch {
             throw PairingError.decodingFailed
         }

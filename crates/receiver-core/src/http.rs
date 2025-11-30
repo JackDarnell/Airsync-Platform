@@ -1,8 +1,8 @@
-use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::Path;
+use std::process::Command;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::f32::consts::PI;
 
 use crate::calibration::{CalibrationApplier, ConfigWriter, ShairportController};
 use crate::airplay::{render_config_file, ShairportConfig};
@@ -12,7 +12,6 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use rand::Rng;
 use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
 use uuid::Uuid;
@@ -26,14 +25,6 @@ pub struct ReceiverInfo {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PairingStartResponse {
-    pub pairing_id: String,
-    pub code: String,
-    pub receiver_id: String,
-    pub ttl_seconds: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PairingConfirmResponse {
     pub receiver_id: String,
     pub capabilities: Vec<String>,
 }
@@ -44,12 +35,6 @@ struct PairingStartRequest {
     device_name: String,
     app_version: String,
     platform: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct PairingConfirmRequest {
-    pairing_id: String,
-    code: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -72,82 +57,31 @@ pub struct CalibrationApplyResponse {
     pub was_clamped: bool,
 }
 
-struct PairingEntry {
-    code: String,
-    expires_at: Instant,
-}
-
-#[derive(Clone)]
-pub struct PairingStore {
-    inner: Arc<Mutex<HashMap<String, PairingEntry>>>,
-    default_ttl: Duration,
-}
-
-impl PairingStore {
-    pub fn new(default_ttl: Duration) -> Self {
-        Self {
-            inner: Arc::new(Mutex::new(HashMap::new())),
-            default_ttl,
-        }
-    }
-
-    pub fn start(&self) -> PairingStartResponse {
-        let pairing_id = Uuid::new_v4().to_string();
-        let code = Self::generate_code();
-        let expires_at = Instant::now() + self.default_ttl;
-        self.inner.lock().unwrap().insert(
-            pairing_id.clone(),
-            PairingEntry { code: code.clone(), expires_at },
-        );
-        PairingStartResponse {
-            pairing_id,
-            code,
-            receiver_id: String::new(),
-            ttl_seconds: self.default_ttl.as_secs(),
-        }
-    }
-
-    pub fn confirm(&self, pairing_id: &str, code: &str) -> Result<()> {
-        let mut inner = self.inner.lock().unwrap();
-        let entry = inner.get(pairing_id).ok_or_else(|| anyhow!("not found"))?;
-        if Instant::now() > entry.expires_at {
-            inner.remove(pairing_id);
-            return Err(anyhow!("expired"));
-        }
-        if entry.code != code {
-            return Err(anyhow!("code mismatch"));
-        }
-        inner.remove(pairing_id);
-        Ok(())
-    }
-
-    fn generate_code() -> String {
-        let mut rng = rand::thread_rng();
-        format!("{:06}", rng.gen_range(0..1_000_000))
-    }
-}
-
 #[derive(Clone)]
 pub struct ReceiverState {
     info: ReceiverInfo,
-    pairings: PairingStore,
     calibration: Arc<dyn CalibrationSink + Send + Sync>,
     settings: Arc<dyn SettingsManager + Send + Sync>,
+    playback: Arc<dyn PlaybackSink + Send + Sync>,
 }
 
 impl ReceiverState {
     pub fn new(
         info: ReceiverInfo,
-        pairings: PairingStore,
         calibration: Arc<dyn CalibrationSink + Send + Sync>,
         settings: Arc<dyn SettingsManager + Send + Sync>,
+        playback: Arc<dyn PlaybackSink + Send + Sync>,
     ) -> Self {
-        Self { info, pairings, calibration, settings }
+        Self { info, calibration, settings, playback }
     }
 }
 
 pub trait CalibrationSink {
     fn apply(&self, submission: &CalibrationSubmission) -> Result<CalibrationApplyResponse>;
+}
+
+pub trait PlaybackSink {
+    fn play(&self, chirp: &ChirpConfig) -> Result<()>;
 }
 
 pub trait SettingsManager {
@@ -185,7 +119,6 @@ impl<W: ConfigWriter + Send + Sync + 'static, C: ShairportController + Send + Sy
 pub fn router(state: ReceiverState) -> Router {
     Router::new()
         .route("/api/pairing/start", post(pairing_start))
-        .route("/api/pairing/confirm", post(pairing_confirm))
         .route("/api/calibration/request", post(calibration_request))
         .route("/api/calibration/result", post(calibration_result))
         .route("/api/settings", get(get_settings).post(update_settings))
@@ -194,24 +127,17 @@ pub fn router(state: ReceiverState) -> Router {
 }
 
 async fn pairing_start(State(state): State<ReceiverState>, Json(_): Json<PairingStartRequest>) -> Result<Json<PairingStartResponse>, StatusCode> {
-    let mut response = state.pairings.start();
-    response.receiver_id = state.info.receiver_id.clone();
-    Ok(Json(response))
-}
-
-async fn pairing_confirm(
-    State(state): State<ReceiverState>,
-    Json(req): Json<PairingConfirmRequest>,
-) -> Result<Json<PairingConfirmResponse>, StatusCode> {
-    state.pairings.confirm(&req.pairing_id, &req.code).map_err(|_| StatusCode::BAD_REQUEST)?;
-    Ok(Json(PairingConfirmResponse {
+    Ok(Json(PairingStartResponse {
         receiver_id: state.info.receiver_id.clone(),
         capabilities: state.info.capabilities.clone(),
     }))
 }
 
-async fn calibration_request(Json(_): Json<CalibrationRequestPayload>) -> StatusCode {
-    StatusCode::OK
+async fn calibration_request(State(state): State<ReceiverState>, Json(req): Json<CalibrationRequestPayload>) -> StatusCode {
+    match state.playback.play(&req.chirp_config) {
+        Ok(_) => StatusCode::OK,
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR,
+    }
 }
 
 async fn calibration_result(
@@ -270,6 +196,79 @@ pub struct ShairportSettingsManager<W: ConfigWriter + Send + Sync + 'static, C: 
     writer: W,
     controller: C,
     config: Arc<Mutex<ShairportConfig>>,
+}
+
+pub struct NoopPlaybackSink;
+
+impl PlaybackSink for NoopPlaybackSink {
+    fn play(&self, _chirp: &ChirpConfig) -> Result<()> {
+        Ok(())
+    }
+}
+
+pub struct SystemPlaybackSink {
+    sample_rate: u32,
+}
+
+impl SystemPlaybackSink {
+    pub fn new(sample_rate: u32) -> Self {
+        Self { sample_rate }
+    }
+
+    fn write_wave(&self, chirp: &ChirpConfig) -> Result<std::path::PathBuf> {
+        let file = tempfile::NamedTempFile::new()?;
+        let path = file.path().to_path_buf();
+        let spec = hound::WavSpec {
+            channels: 1,
+            sample_rate: self.sample_rate,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let mut writer = hound::WavWriter::create(&path, spec)?;
+        let samples = generate_chirp_samples(chirp, self.sample_rate);
+        for s in samples {
+            writer.write_sample(s)?;
+        }
+        writer.finalize()?;
+        Ok(path)
+    }
+}
+
+impl PlaybackSink for SystemPlaybackSink {
+    fn play(&self, chirp: &ChirpConfig) -> Result<()> {
+        let wav_path = self.write_wave(chirp)?;
+        let status = Command::new("aplay")
+            .args(["-q", wav_path.to_str().unwrap_or("")])
+            .status();
+        std::fs::remove_file(&wav_path).ok();
+        match status {
+            Ok(s) if s.success() => Ok(()),
+            Ok(s) => Err(anyhow!("aplay failed with status {}", s)),
+            Err(e) => Err(anyhow!("failed to run aplay: {}", e)),
+        }
+    }
+}
+
+fn generate_chirp_samples(cfg: &ChirpConfig, sample_rate: u32) -> Vec<i16> {
+    let sr = sample_rate as f32;
+    let duration_s = cfg.duration as f32 / 1000.0;
+    let interval_s = cfg.interval_ms as f32 / 1000.0;
+    let sweep_k = (cfg.end_freq as f32 - cfg.start_freq as f32) / duration_s;
+    let single = (0..(duration_s * sr) as usize)
+        .map(|n| {
+            let t = n as f32 / sr;
+            let phase = 2.0 * PI * (cfg.start_freq as f32 * t + 0.5 * sweep_k * t * t / duration_s);
+            let sample = (phase.sin() * 0.5 * i16::MAX as f32).round();
+            sample as i16
+        })
+        .collect::<Vec<_>>();
+    let silence = (0..(interval_s * sr) as usize).map(|_| 0i16).collect::<Vec<_>>();
+    let mut out = Vec::new();
+    for _ in 0..cfg.repetitions.max(1) {
+        out.extend_from_slice(&single);
+        out.extend_from_slice(&silence);
+    }
+    out
 }
 
 impl<W: ConfigWriter + Send + Sync + 'static, C: ShairportController + Send + Sync + 'static>
@@ -361,7 +360,6 @@ mod tests {
     use axum::body::to_bytes;
     use axum::http::Request;
     use serde_json::json;
-    use std::time::Duration;
     use tower::ServiceExt;
 
     #[derive(Clone)]
@@ -389,6 +387,37 @@ mod tests {
                 applied_offset_ms: submission.latency_ms,
                 was_clamped: false,
             })
+        }
+    }
+
+    #[derive(Clone)]
+    struct MockPlaybackSink {
+        last: Arc<Mutex<Option<ChirpConfig>>>,
+        calls: Arc<Mutex<u32>>,
+    }
+
+    impl MockPlaybackSink {
+        fn new() -> Self {
+            Self {
+                last: Arc::new(Mutex::new(None)),
+                calls: Arc::new(Mutex::new(0)),
+            }
+        }
+
+        fn last(&self) -> Option<ChirpConfig> {
+            self.last.lock().unwrap().clone()
+        }
+
+        fn call_count(&self) -> u32 {
+            *self.calls.lock().unwrap()
+        }
+    }
+
+    impl PlaybackSink for MockPlaybackSink {
+        fn play(&self, chirp: &ChirpConfig) -> Result<()> {
+            *self.calls.lock().unwrap() += 1;
+            *self.last.lock().unwrap() = Some(chirp.clone());
+            Ok(())
         }
     }
 
@@ -443,14 +472,14 @@ mod tests {
                 name: "Test".into(),
                 capabilities: vec!["calibration".into()],
             },
-            PairingStore::new(Duration::from_secs(60)),
             Arc::new(MockCalibrationSink::new()),
             Arc::new(MockSettingsManager::new()),
+            Arc::new(MockPlaybackSink::new()),
         )
     }
 
     #[tokio::test]
-    async fn pairing_start_and_confirm() {
+    async fn pairing_start_returns_receiver_info() {
         let state = test_state();
         let app = router(state.clone());
 
@@ -473,42 +502,13 @@ mod tests {
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let start: PairingStartResponse = serde_json::from_slice(&body).unwrap();
         assert_eq!(start.receiver_id, "rx-1");
-        assert_eq!(start.ttl_seconds, 60);
-        assert_eq!(start.code.len(), 6);
-
-        let confirm_body = json!({
-            "pairing_id": start.pairing_id,
-            "code": start.code
-        });
-        let response = app
-            .clone()
-            .oneshot(
-                Request::post("/api/pairing/confirm")
-                    .header("content-type", "application/json")
-                    .body(Body::from(confirm_body.to_string()))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let confirm: PairingConfirmResponse = serde_json::from_slice(&body).unwrap();
-        assert_eq!(confirm.receiver_id, "rx-1");
-        assert_eq!(confirm.capabilities, vec!["calibration"]);
-    }
-
-    #[test]
-    fn pairing_store_expires() {
-        let store = PairingStore::new(Duration::from_millis(1));
-        let start = store.start();
-        std::thread::sleep(Duration::from_millis(2));
-        let result = store.confirm(&start.pairing_id, &start.code);
-        assert!(result.is_err());
+        assert_eq!(start.capabilities, vec!["calibration"]);
     }
 
     #[tokio::test]
     async fn calibration_result_calls_sink() {
         let sink = Arc::new(MockCalibrationSink::new());
+        let playback = Arc::new(MockPlaybackSink::new());
         let settings = Arc::new(MockSettingsManager::new());
         let state = ReceiverState::new(
             ReceiverInfo {
@@ -516,9 +516,9 @@ mod tests {
                 name: "Test".into(),
                 capabilities: vec!["calibration".into()],
             },
-            PairingStore::new(Duration::from_secs(60)),
             sink.clone(),
             settings,
+            playback,
         );
         let app = router(state);
         let req_body = json!({
@@ -550,9 +550,9 @@ mod tests {
                 name: "Test".into(),
                 capabilities: vec!["calibration".into()],
             },
-            PairingStore::new(Duration::from_secs(60)),
             Arc::new(MockCalibrationSink::new()),
             settings.clone(),
+            Arc::new(MockPlaybackSink::new()),
         );
         let app = router(state);
 
@@ -577,6 +577,46 @@ mod tests {
         assert_eq!(cfg.output_device, "hw:1,0");
         assert_eq!(cfg.latency_offset_seconds, 0.05);
         assert_eq!(settings.restart_calls(), 1);
+    }
+
+    #[tokio::test]
+    async fn calibration_request_triggers_playback() {
+        let playback = Arc::new(MockPlaybackSink::new());
+        let state = ReceiverState::new(
+            ReceiverInfo {
+                receiver_id: "rx-1".into(),
+                name: "Test".into(),
+                capabilities: vec!["calibration".into()],
+            },
+            Arc::new(MockCalibrationSink::new()),
+            Arc::new(MockSettingsManager::new()),
+            playback.clone(),
+        );
+        let app = router(state);
+        let req_body = json!({
+            "timestamp": 1,
+            "chirp_config": {
+                "start_freq": 2000,
+                "end_freq": 8000,
+                "duration": 50,
+                "repetitions": 5,
+                "interval_ms": 500
+            }
+        });
+        let response = app
+            .oneshot(
+                Request::post("/api/calibration/request")
+                    .header("content-type", "application/json")
+                    .body(Body::from(req_body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(playback.call_count(), 1);
+        let last = playback.last().unwrap();
+        assert_eq!(last.start_freq, 2000);
+        assert_eq!(last.end_freq, 8000);
     }
 
     #[test]

@@ -18,6 +18,8 @@ uuid = { version = "1", features = ["v4", "serde"] }
 rand = "0.8"
 tower = "0.5"
 hostname = "0.3"
+hound = "3"
+tempfile = "3"
 
 [dev-dependencies]
 tempfile = "3"

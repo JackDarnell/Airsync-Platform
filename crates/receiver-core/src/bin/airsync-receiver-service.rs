@@ -1,11 +1,10 @@
 use std::net::SocketAddr;
-use std::time::Duration;
 
 use airsync_receiver_core::airplay::generate_config;
 use airsync_receiver_core::calibration::{CalibrationApplier, FileConfigWriter, SystemdShairportController};
 use airsync_receiver_core::http::{
     load_or_create_receiver_id, render_avahi_service, router, serve, ReceiverInfo, ReceiverState,
-    ShairportCalibrationSink, PairingStore, ShairportSettingsManager,
+    ShairportCalibrationSink, ShairportSettingsManager, SystemPlaybackSink,
 };
 use airsync_shared_protocol::AudioOutput;
 use std::path::PathBuf;
@@ -37,7 +36,8 @@ async fn main() -> anyhow::Result<()> {
         config.clone(),
     ));
 
-    let state = ReceiverState::new(info, PairingStore::new(Duration::from_secs(120)), sink, settings);
+    let playback = Arc::new(SystemPlaybackSink::new(48_000));
+    let state = ReceiverState::new(info, sink, settings, playback);
     let app = router(state);
 
     let addr: SocketAddr = "0.0.0.0:5000".parse()?;

@@ -12,8 +12,8 @@ final class ReceiverPairingClientTests: XCTestCase {
         super.tearDown()
     }
 
-    func testStartReturnsCodeAndIDs() async throws {
-        let expected = PairingStartResponse(pairingID: "pid-1", code: "123456", receiverID: "rx-1", ttlSeconds: 90)
+    func testStartReturnsReceiverInfo() async throws {
+        let expected = PairingStartResponse(receiverID: "rx-1", capabilities: ["calibration"])
         MockURLProtocol.requestHandler = { request in
             XCTAssertEqual(request.url?.path, "/api/pairing/start")
             let data = try JSONEncoder().encode(expected)
@@ -23,20 +23,6 @@ final class ReceiverPairingClientTests: XCTestCase {
 
         let client = ReceiverPairingClient(baseURL: URL(string: "http://example.com")!, session: mockSession())
         let result = try await client.start(deviceName: "iPhone", appVersion: "1.0")
-        XCTAssertEqual(result, expected)
-    }
-
-    func testConfirmReturnsCapabilities() async throws {
-        let expected = PairingConfirmResponse(receiverID: "rx-1", capabilities: ["calibration"])
-        MockURLProtocol.requestHandler = { request in
-            XCTAssertEqual(request.url?.path, "/api/pairing/confirm")
-            let data = try JSONEncoder().encode(expected)
-            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
-            return (response, data)
-        }
-
-        let client = ReceiverPairingClient(baseURL: URL(string: "http://example.com")!, session: mockSession())
-        let result = try await client.confirm(pairingID: "pid-1", code: "123456")
         XCTAssertEqual(result, expected)
     }
 

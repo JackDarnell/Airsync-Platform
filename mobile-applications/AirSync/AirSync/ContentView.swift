@@ -13,7 +13,6 @@ import SwiftUI
 struct ContentView: View {
     @Environment(\.openURL) private var openURL
     @StateObject private var browser = ReceiverBrowser()
-    @StateObject private var pairings = PairedReceiverStore()
     @State private var manualHost: String = ""
     @State private var microphonePermission: AVAudioSession.RecordPermission = AVAudioSession.sharedInstance().recordPermission
 
@@ -92,9 +91,7 @@ struct ContentView: View {
                             .foregroundStyle(.secondary)
                     } else {
                         ForEach(browser.receivers) { receiver in
-                            NavigationLink(
-                                destination: ReceiverFlowView(receiver: receiver, store: pairings)
-                            ) {
+                            NavigationLink(destination: CalibrationView(session: .liveReceiverSession(baseURL: receiver.baseURL))) {
                                 VStack(alignment: .leading) {
                                     Text(receiver.displayName)
                                         .font(.headline)
@@ -114,7 +111,7 @@ struct ContentView: View {
                             .disableAutocorrection(true)
                         if let receiver = manualReceiver {
                             NavigationLink("Calibrate") {
-                                ReceiverFlowView(receiver: receiver, store: pairings)
+                                CalibrationView(session: .liveReceiverSession(baseURL: receiver.baseURL))
                             }
                         }
                     }
