@@ -50,6 +50,8 @@ pub struct CalibrationRequestPayload {
 #[derive(Debug, Clone, Deserialize)]
 pub struct CalibrationReadyPayload {
     pub timestamp: Option<u64>,
+    #[serde(default)]
+    pub target_start_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -79,6 +81,7 @@ pub struct ReceiverState {
 struct PendingPlayback {
     chirp: ChirpConfig,
     delay_ms: u64,
+    requested_at: u64,
 }
 
 impl ReceiverState {
@@ -159,6 +162,7 @@ async fn calibration_request(State(state): State<ReceiverState>, Json(req): Json
     *slot = Some(PendingPlayback {
         chirp: req.chirp_config.clone(),
         delay_ms: delay,
+        requested_at: now_millis(),
     });
     StatusCode::OK
 }
@@ -175,13 +179,16 @@ async fn calibration_ready(
 
     let playback = state.playback.clone();
     tokio::spawn(async move {
-        if pending.delay_ms > 0 {
-            tokio::time::sleep(Duration::from_millis(pending.delay_ms)).await;
+        let now = now_millis();
+        let target = req.target_start_ms.unwrap_or_else(|| now + pending.delay_ms);
+        let wait_ms = target.saturating_sub(now);
+        if wait_ms > 0 {
+            tokio::time::sleep(Duration::from_millis(wait_ms)).await;
         }
         let start_at = now_millis();
         println!(
-            "[calibration] scheduling playback - rx_ts={}ms start_ts={}ms delay_ms={}",
-            received_at, start_at, pending.delay_ms
+            "[calibration] scheduling playback - rx_ts={}ms req_ts={}ms target_ts={}ms start_ts={}ms delay_ms={}",
+            received_at, pending.requested_at, target, start_at, pending.delay_ms
         );
         if let Err(err) = playback.play(&pending.chirp) {
             eprintln!("[calibration] playback failed: {err:?}");
@@ -737,7 +744,7 @@ impl PlaybackSink for MockPlaybackSink {
             .oneshot(
                 Request::post("/api/calibration/ready")
                     .header("content-type", "application/json")
-                    .body(Body::from(json!({}).to_string()))
+                    .body(Body::from(json!({"timestamp": 5, "target_start_ms": 25}).to_string()))
                     .unwrap(),
             )
             .await
