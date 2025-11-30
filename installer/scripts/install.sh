@@ -15,6 +15,7 @@ SHAIRPORT_VERSION="development"  # Use development branch for FFmpeg 7 compatibi
 INSTALL_DIR="/opt/airsync"
 SERVICE_USER="airsync"
 CONFIG_DIR="/etc/airsync"
+STATE_DIR="/var/lib/airsync"
 
 # Bundled source mode - installer can work offline if source is provided
 # Set SOURCE_ARCHIVE environment variable to point to airsync source tarball
@@ -79,7 +80,8 @@ install_dependencies() {
                 uuid-dev \
                 libgcrypt-dev \
                 xxd \
-                curl
+                curl \
+                uuid-runtime
 
             # Optional: systemd-dev required on Debian 13+/Ubuntu 24.10+ and later
             # It's okay if this fails on older systems where the package doesn't exist
@@ -296,6 +298,88 @@ install_shairport_sync() {
     echo -e "${GREEN}✓${NC} shairport-sync installed"
 }
 
+# Install systemd unit for receiver HTTP service
+install_receiver_service_unit() {
+    if [ ! -d "/run/systemd/system" ]; then
+        echo "systemd not available; skipping receiver service unit"
+        return
+    fi
+
+    cat >/etc/systemd/system/airsync-receiver.service <<'EOF'
+[Unit]
+Description=AirSync Receiver HTTP Service
+After=network-online.target avahi-daemon.service
+Wants=network-online.target
+
+[Service]
+User=airsync
+Group=airsync
+Environment=RUST_LOG=info
+ExecStart=/usr/local/bin/airsync-receiver-service
+Restart=on-failure
+RestartSec=2
+RuntimeDirectory=airsync
+StateDirectory=airsync
+WorkingDirectory=/
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    systemctl daemon-reload
+    systemctl enable airsync-receiver.service 2>/dev/null || true
+    systemctl restart airsync-receiver.service 2>/dev/null || true
+
+    echo -e "${GREEN}✓${NC} Receiver service installed and started"
+}
+
+install_avahi_service() {
+    if ! command -v avahi-daemon >/dev/null 2>&1; then
+        echo "Avahi not installed; skipping Avahi service file"
+        return
+    fi
+
+    mkdir -p /etc/avahi/services
+    local SERVICE_FILE="/etc/avahi/services/airsync.service"
+
+    local RECEIVER_ID=""
+    if [ -f "$STATE_DIR/receiver.json" ]; then
+        RECEIVER_ID=$(python3 - <<'PY'
+import json
+from pathlib import Path
+path = Path("/var/lib/airsync/receiver.json")
+try:
+    data = json.loads(path.read_text())
+    print(data.get("receiver_id", ""))
+except Exception:
+    print("")
+PY
+)
+    fi
+    if [ -z "$RECEIVER_ID" ]; then
+        RECEIVER_ID=$(uuidgen || cat /proc/sys/kernel/random/uuid)
+    fi
+
+    local HOSTNAME=$(hostname)
+    cat >"$SERVICE_FILE" <<EOF
+<service-group>
+  <name replace-wildcards="yes">${HOSTNAME}</name>
+  <service>
+    <type>_airsync._tcp</type>
+    <port>5000</port>
+    <txt-record>name=${HOSTNAME}</txt-record>
+    <txt-record>ver=1</txt-record>
+    <txt-record>api=/api</txt-record>
+    <txt-record>caps=calibration</txt-record>
+    <txt-record>id=${RECEIVER_ID}</txt-record>
+  </service>
+</service-group>
+EOF
+
+    systemctl restart avahi-daemon 2>/dev/null || true
+    echo -e "${GREEN}✓${NC} Avahi service published for _airsync._tcp"
+}
+
 # Create service user
 create_user() {
     if id "$SERVICE_USER" &>/dev/null; then
@@ -362,18 +446,109 @@ install_airsync() {
     # Build release binaries
     cargo build --release --bin detect-hardware
     cargo build --release --bin generate-config
+    cargo build --release --bin airsync-receiver-service
 
     # Install binaries
     cp target/release/detect-hardware /usr/local/bin/airsync-detect
     cp target/release/generate-config /usr/local/bin/airsync-generate-config
+    cp target/release/airsync-receiver-service /usr/local/bin/airsync-receiver-service
     chmod +x /usr/local/bin/airsync-detect
     chmod +x /usr/local/bin/airsync-generate-config
+    chmod +x /usr/local/bin/airsync-receiver-service
 
     # Create config directory
     mkdir -p "$CONFIG_DIR"
     chown "$SERVICE_USER:$SERVICE_USER" "$CONFIG_DIR"
 
+    # Create state dir for receiver id / cache
+    mkdir -p "$STATE_DIR"
+    chown "$SERVICE_USER:$SERVICE_USER" "$STATE_DIR"
+
     echo -e "${GREEN}✓${NC} AirSync daemon installed"
+}
+
+# Install systemd unit for receiver HTTP service
+install_receiver_service_unit() {
+    if [ ! -d "/run/systemd/system" ]; then
+        echo "systemd not available; skipping receiver service unit"
+        return
+    fi
+
+    cat >/etc/systemd/system/airsync-receiver.service <<'EOF'
+[Unit]
+Description=AirSync Receiver HTTP Service
+After=network-online.target avahi-daemon.service
+Wants=network-online.target
+
+[Service]
+User=airsync
+Group=airsync
+Environment=RUST_LOG=info
+ExecStart=/usr/local/bin/airsync-receiver-service
+Restart=on-failure
+RestartSec=2
+RuntimeDirectory=airsync
+StateDirectory=airsync
+WorkingDirectory=/
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    systemctl daemon-reload
+    systemctl enable airsync-receiver.service 2>/dev/null || true
+    systemctl restart airsync-receiver.service 2>/dev/null || true
+
+    echo -e "${GREEN}✓${NC} Receiver service installed and started"
+}
+
+install_avahi_service() {
+    # Render a static Avahi service file; receiver service also prints an example at runtime.
+    if ! command -v avahi-daemon >/dev/null 2>&1; then
+        echo "Avahi not installed; skipping Avahi service file"
+        return
+    fi
+
+    mkdir -p /etc/avahi/services
+    local SERVICE_FILE="/etc/avahi/services/airsync.service"
+
+    # Attempt to reuse existing receiver_id if present
+    local RECEIVER_ID=""
+    if [ -f "$STATE_DIR/receiver.json" ]; then
+        RECEIVER_ID=$(python3 - <<'PY'
+import json,sys
+from pathlib import Path
+path=Path("/var/lib/airsync/receiver.json")
+try:
+    data=json.loads(path.read_text())
+    print(data.get("receiver_id",""))
+except Exception:
+    print("")
+PY
+)
+    fi
+    if [ -z "$RECEIVER_ID" ]; then
+        RECEIVER_ID=$(uuidgen || cat /proc/sys/kernel/random/uuid)
+    fi
+
+    local HOSTNAME=$(hostname)
+    cat >"$SERVICE_FILE" <<EOF
+<service-group>
+  <name replace-wildcards="yes">${HOSTNAME}</name>
+  <service>
+    <type>_airsync._tcp</type>
+    <port>5000</port>
+    <txt-record>name=${HOSTNAME}</txt-record>
+    <txt-record>ver=1</txt-record>
+    <txt-record>api=/api</txt-record>
+    <txt-record>caps=calibration</txt-record>
+    <txt-record>id=${RECEIVER_ID}</txt-record>
+  </service>
+</service-group>
+EOF
+
+    systemctl restart avahi-daemon 2>/dev/null || true
+    echo -e "${GREEN}✓${NC} Avahi service published for _airsync._tcp"
 }
 
 # Select audio output device
@@ -609,6 +784,8 @@ main() {
     install_shairport_sync
     create_user
     install_airsync
+    install_receiver_service_unit
+    install_avahi_service
     setup_configuration
     setup_systemd
     cleanup_build_artifacts

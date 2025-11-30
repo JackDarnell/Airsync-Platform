@@ -1,9 +1,10 @@
 use airsync_shared_protocol::AudioOutput;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io;
 use std::path::Path;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ShairportConfig {
     pub device_name: String,
     pub output_device: String,
