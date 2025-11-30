@@ -55,6 +55,20 @@ enum CalibrationStage: Equatable {
             return false
         }
     }
+
+    var isTerminal: Bool {
+        switch self {
+        case .completed, .failed:
+            return true
+        default:
+            return false
+        }
+    }
+
+    var isFailed: Bool {
+        if case .failed = self { return true }
+        return false
+    }
 }
 
 enum CalibrationError: LocalizedError {
@@ -72,6 +86,7 @@ enum CalibrationError: LocalizedError {
 final class CalibrationSession: ObservableObject {
     @Published private(set) var stage: CalibrationStage = .idle
     @Published private(set) var latestMeasurement: LatencyMeasurement?
+    @Published private(set) var progress: Double = 0
 
     private let generator: ChirpGenerator
     private let detector: LatencyDetector
@@ -79,6 +94,8 @@ final class CalibrationSession: ObservableObject {
     private let api: CalibrationAPI
     private let config: ChirpConfig
     private let microphoneAccess: () async throws -> Void
+    private var progressTask: Task<Void, Never>?
+    private var expectedDuration: TimeInterval = 1.0
 
     init(
         generator: ChirpGenerator? = nil,
@@ -97,11 +114,16 @@ final class CalibrationSession: ObservableObject {
     }
 
     func start() async {
+        progressTask?.cancel()
+        progress = 0
         stage = .requestingPlayback
         do {
             try await microphoneAccess()
             let sequence = generator.makeSequence(config: config)
             try await api.startPlayback(config)
+            let total = recordingDuration(for: sequence) + 0.5
+            expectedDuration = total
+            startProgressTimer(totalDuration: total)
 
             stage = .recording
             let recording = try await recorder.record(
@@ -122,8 +144,11 @@ final class CalibrationSession: ObservableObject {
 
             try await api.submitResult(payload)
             stage = .completed(measurement)
+            progress = 1
         } catch {
             stage = .failed(error.localizedDescription)
+            progressTask?.cancel()
+            progress = 0
         }
     }
 
@@ -140,6 +165,24 @@ final class CalibrationSession: ObservableObject {
     private func recordingDuration(for sequence: ChirpSequence) -> TimeInterval {
         let chirpDuration = Double(sequence.samples.count) / sequence.sampleRate
         return chirpDuration + detector.searchWindowSeconds + 0.05
+    }
+
+    private func startProgressTimer(totalDuration: TimeInterval) {
+        progressTask?.cancel()
+        let start = Date()
+        progressTask = Task { [weak self] in
+            while let self = self, !Task.isCancelled {
+                let elapsed = Date().timeIntervalSince(start)
+                let fraction = min(1.0, elapsed / totalDuration)
+                await MainActor.run {
+                    self.progress = fraction
+                }
+                try? await Task.sleep(nanoseconds: 100_000_000) // 0.1s
+                if fraction >= 1.0 || self.stage.isTerminal {
+                    break
+                }
+            }
+        }
     }
 
     private static func timestampNow() -> UInt64 {

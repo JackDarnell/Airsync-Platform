@@ -36,7 +36,7 @@ async fn main() -> anyhow::Result<()> {
         config.clone(),
     ));
 
-    let playback = Arc::new(SystemPlaybackSink::new(48_000, config.clone(), 0.8));
+    let playback = Arc::new(SystemPlaybackSink::new(48_000, config.clone(), 1.0));
     let state = ReceiverState::new(info, sink, settings, playback);
     let app = router(state);
 

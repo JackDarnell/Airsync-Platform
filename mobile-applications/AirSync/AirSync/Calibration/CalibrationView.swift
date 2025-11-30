@@ -20,6 +20,7 @@ struct CalibrationView: View {
             }
 
             statusView
+            progressSection
 
             VStack(alignment: .leading, spacing: 8) {
                 Text("Latest Measurement")
@@ -88,6 +89,29 @@ struct CalibrationView: View {
             return "Calibration complete."
         case let .failed(message):
             return "Calibration failed: \(message)"
+        }
+    }
+
+    private var progressSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Progress")
+                .font(.headline)
+            ProgressView(value: session.progress)
+                .progressViewStyle(.linear)
+            if session.progress > 0 && session.progress < 1 {
+                let percent = Int(session.progress * 100)
+                Text("\(percent)% (estimated)")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            } else if session.stage.isTerminal {
+                Text("Done")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("Waiting to start...")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 }

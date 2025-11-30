@@ -12,11 +12,11 @@ pub struct ChirpConfig {
 impl Default for ChirpConfig {
     fn default() -> Self {
         Self {
-            start_freq: 2000,
-            end_freq: 8000,
-            duration: 50,
-            repetitions: 5,
-            interval_ms: 500,
+            start_freq: 1000,
+            end_freq: 10000,
+            duration: 100,
+            repetitions: 6,
+            interval_ms: 400,
         }
     }
 }
