@@ -16,6 +16,24 @@ INSTALL_DIR="/opt/airsync"
 SERVICE_USER="airsync"
 CONFIG_DIR="/etc/airsync"
 STATE_DIR="/var/lib/airsync"
+TOTAL_STEPS=13
+CURRENT_STEP=0
+
+progress_step() {
+    CURRENT_STEP=$((CURRENT_STEP + 1))
+    local label="$1"
+    local percent=$(( CURRENT_STEP * 100 / TOTAL_STEPS ))
+    local filled=$(( percent / 5 )) # 20-char bar
+    local bar=""
+    for ((i=0; i<20; i++)); do
+        if [ $i -lt $filled ]; then
+            bar+="#"
+        else
+            bar+="-"
+        fi
+    done
+    echo -e "${GREEN}[${bar}]${NC} ${percent}% - ${label}"
+}
 
 # Bundled source mode - installer can work offline if source is provided
 # Set SOURCE_ARCHIVE environment variable to point to airsync source tarball
@@ -777,18 +795,31 @@ verify_installation() {
 
 # Main installation flow
 main() {
+    progress_step "Detecting OS"
     detect_os
+    progress_step "Installing dependencies"
     install_dependencies
+    progress_step "Installing Rust toolchain"
     install_rust
+    progress_step "Installing NQPTP"
     install_nqptp
+    progress_step "Installing shairport-sync"
     install_shairport_sync
+    progress_step "Creating service user"
     create_user
+    progress_step "Building AirSync binaries"
     install_airsync
+    progress_step "Installing receiver service unit"
     install_receiver_service_unit
+    progress_step "Publishing Avahi service"
     install_avahi_service
+    progress_step "Generating configuration"
     setup_configuration
+    progress_step "Configuring systemd services"
     setup_systemd
+    progress_step "Cleaning build artifacts"
     cleanup_build_artifacts
+    progress_step "Verifying installation"
     verify_installation
 
     echo ""
