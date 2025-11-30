@@ -7,6 +7,8 @@ pub struct ChirpConfig {
     pub duration: u32,
     pub repetitions: u32,
     pub interval_ms: u32,
+    #[serde(default)]
+    pub amplitude: Option<f32>,
 }
 
 impl Default for ChirpConfig {
@@ -17,6 +19,7 @@ impl Default for ChirpConfig {
             duration: 100,
             repetitions: 6,
             interval_ms: 400,
+            amplitude: None,
         }
     }
 }

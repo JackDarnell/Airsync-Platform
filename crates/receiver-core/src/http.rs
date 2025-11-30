@@ -309,7 +309,11 @@ impl SystemPlaybackSink {
             sample_format: hound::SampleFormat::Int,
         };
         let mut writer = hound::WavWriter::create(file.path(), spec)?;
-        let samples = generate_chirp_samples(chirp, self.sample_rate, self.gain);
+        let samples = generate_chirp_samples(
+            chirp,
+            self.sample_rate,
+            (self.gain * chirp.amplitude.unwrap_or(1.0)).clamp(0.0, 1.0),
+        );
         for s in samples {
             writer.write_sample(s)?;
         }
@@ -808,6 +812,7 @@ impl PlaybackSink for MockPlaybackSink {
             duration: 100,
             repetitions: 2,
             interval_ms: 100,
+            amplitude: None,
         };
         let samples = generate_chirp_samples(&cfg, 48_000, 1.0);
         assert!(samples.iter().any(|&s| s != 0));

@@ -4,6 +4,7 @@ import SwiftUI
 struct CalibrationView: View {
     @StateObject private var session: CalibrationSession
     @State private var isCalibrating = false
+    @State private var volume: Double = 0.8
 
     init(session: CalibrationSession) {
         _session = StateObject(wrappedValue: session)
@@ -21,6 +22,7 @@ struct CalibrationView: View {
 
             statusView
             progressSection
+            volumeSection
 
             VStack(alignment: .leading, spacing: 8) {
                 Text("Latest Measurement")
@@ -38,6 +40,7 @@ struct CalibrationView: View {
 
             Button {
                 Task {
+                    session.setAmplitude(volume)
                     isCalibrating = true
                     await session.start()
                     isCalibrating = false
@@ -70,6 +73,17 @@ struct CalibrationView: View {
             Text(statusText)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private var volumeSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Playback Volume")
+                .font(.headline)
+            Slider(value: $volume, in: 0.2...1.0, step: 0.05)
+            Text("Volume: \(Int(volume * 100))%")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
         }
     }
 

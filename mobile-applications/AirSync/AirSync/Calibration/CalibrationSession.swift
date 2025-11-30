@@ -96,7 +96,7 @@ final class CalibrationSession: ObservableObject {
     private let detector: LatencyDetector
     private let recorder: MicrophoneRecorder
     private let api: CalibrationAPI
-    private let config: ChirpConfig
+    private var config: ChirpConfig
     private let microphoneAccess: () async throws -> Void
     private var progressTask: Task<Void, Never>?
     private var expectedDuration: TimeInterval = 1.0
@@ -168,6 +168,17 @@ final class CalibrationSession: ObservableObject {
             progress = 0
             recordingTask?.cancel()
         }
+    }
+
+    func setAmplitude(_ value: Double) {
+        config = ChirpConfig(
+            startFrequency: config.startFrequency,
+            endFrequency: config.endFrequency,
+            durationMs: config.durationMs,
+            repetitions: config.repetitions,
+            intervalMs: config.intervalMs,
+            amplitude: value
+        )
     }
 
     private static func requestMicrophoneAccess() async throws {

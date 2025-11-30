@@ -11,6 +11,7 @@ struct ChirpConfig: Equatable, Codable {
     let durationMs: Double
     let repetitions: Int
     let intervalMs: Double
+    let amplitude: Double
 
     static var defaultConfig: ChirpConfig {
         ChirpConfig(
@@ -18,7 +19,8 @@ struct ChirpConfig: Equatable, Codable {
             endFrequency: 10_000,
             durationMs: 100,
             repetitions: 6,
-            intervalMs: 400
+            intervalMs: 400,
+            amplitude: 1.0
         )
     }
 
@@ -28,5 +30,6 @@ struct ChirpConfig: Equatable, Codable {
         case durationMs = "duration"
         case repetitions
         case intervalMs = "interval_ms"
+        case amplitude
     }
 }

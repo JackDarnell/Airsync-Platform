@@ -8,7 +8,8 @@ enum TestAudioFixtures {
         endFrequency: 8_000,
         durationMs: 50,
         repetitions: 5,
-        intervalMs: 500
+        intervalMs: 500,
+        amplitude: 1.0
     )
 
     static func referenceSequence(config: ChirpConfig = defaultConfig) -> ChirpSequence {
