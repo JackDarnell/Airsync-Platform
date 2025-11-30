@@ -36,13 +36,23 @@ async fn main() -> anyhow::Result<()> {
         config.clone(),
     ));
 
+    let structured = match airsync_receiver_core::calibration::signal::generate_structured_signal(
+        "/usr/local/share/airsync/structured_cal.wav",
+    ) {
+        Ok(s) => Some(s),
+        Err(e) => {
+            eprintln!("Failed to generate structured calibration signal: {e:?}");
+            None
+        }
+    };
+
     let playback = Arc::new(SystemPlaybackSink::new(
         48_000,
         config.clone(),
         1.0,
         Some(std::path::PathBuf::from("/usr/local/share/airsync/chirp.wav")),
     ));
-    let state = ReceiverState::new(info, sink, settings, playback);
+    let state = ReceiverState::new(info, sink, settings, playback, structured);
     let app = router(state);
 
     let addr: SocketAddr = "0.0.0.0:5000".parse()?;

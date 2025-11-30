@@ -1,12 +1,12 @@
 use std::net::SocketAddr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::calibration::{CalibrationApplier, ConfigWriter, ShairportController};
 use crate::airplay::{render_config_file, ShairportConfig};
-use airsync_shared_protocol::{CalibrationSubmission, ChirpConfig};
+use airsync_shared_protocol::{CalibrationSubmission, CalibrationSignalSpec, ChirpConfig};
 use crate::generate_chirp_samples;
 use anyhow::{anyhow, Context, Result};
 use axum::extract::State;
@@ -45,6 +45,8 @@ pub struct CalibrationRequestPayload {
     pub chirp_config: ChirpConfig,
     #[serde(default)]
     pub delay_ms: Option<u64>,
+    #[serde(default)]
+    pub structured: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -75,11 +77,12 @@ pub struct ReceiverState {
     settings: Arc<dyn SettingsManager + Send + Sync>,
     playback: Arc<dyn PlaybackSink + Send + Sync>,
     pending_playback: Arc<Mutex<Option<PendingPlayback>>>,
+    structured: Option<crate::calibration::signal::StructuredSignal>,
 }
 
 #[derive(Clone)]
 struct PendingPlayback {
-    chirp: ChirpConfig,
+    request: PlaybackRequest,
     delay_ms: u64,
     requested_at: u64,
 }
@@ -90,8 +93,16 @@ impl ReceiverState {
         calibration: Arc<dyn CalibrationSink + Send + Sync>,
         settings: Arc<dyn SettingsManager + Send + Sync>,
         playback: Arc<dyn PlaybackSink + Send + Sync>,
+        structured: Option<crate::calibration::signal::StructuredSignal>,
     ) -> Self {
-        Self { info, calibration, settings, playback, pending_playback: Arc::new(Mutex::new(None)) }
+        Self {
+            info,
+            calibration,
+            settings,
+            playback,
+            pending_playback: Arc::new(Mutex::new(None)),
+            structured,
+        }
     }
 }
 
@@ -99,8 +110,14 @@ pub trait CalibrationSink {
     fn apply(&self, submission: &CalibrationSubmission) -> Result<CalibrationApplyResponse>;
 }
 
+#[derive(Clone)]
+pub enum PlaybackRequest {
+    Chirp(ChirpConfig),
+    File(PathBuf),
+}
+
 pub trait PlaybackSink {
-    fn play(&self, chirp: &ChirpConfig) -> Result<()>;
+    fn play(&self, request: &PlaybackRequest) -> Result<()>;
 }
 
 pub trait SettingsManager {
@@ -141,6 +158,7 @@ pub fn router(state: ReceiverState) -> Router {
         .route("/api/calibration/request", post(calibration_request))
         .route("/api/calibration/ready", post(calibration_ready))
         .route("/api/calibration/result", post(calibration_result))
+        .route("/api/calibration/spec", get(calibration_spec))
         .route("/api/settings", get(get_settings).post(update_settings))
         .route("/api/receiver/info", get(receiver_info))
         .route("/api/time", get(time_sync))
@@ -158,9 +176,19 @@ async fn pairing_start(State(state): State<ReceiverState>, Json(_): Json<Pairing
 
 async fn calibration_request(State(state): State<ReceiverState>, Json(req): Json<CalibrationRequestPayload>) -> StatusCode {
     let delay = req.delay_ms.unwrap_or(2_000);
+    let request = if req.structured {
+        if let Some(structured) = &state.structured {
+            PlaybackRequest::File(structured.path.clone())
+        } else {
+            eprintln!("[calibration] structured request but no structured signal available");
+            return StatusCode::BAD_REQUEST;
+        }
+    } else {
+        PlaybackRequest::Chirp(req.chirp_config.clone())
+    };
     let mut slot = state.pending_playback.lock().unwrap();
     *slot = Some(PendingPlayback {
-        chirp: req.chirp_config.clone(),
+        request,
         delay_ms: delay,
         requested_at: now_millis(),
     });
@@ -183,6 +211,7 @@ async fn calibration_ready(
     };
 
     let playback = state.playback.clone();
+    let request = pending.request.clone();
     tokio::spawn(async move {
         let now = now_millis();
         let mut target = req.target_start_ms.unwrap_or_else(|| now + pending.delay_ms);
@@ -203,7 +232,7 @@ async fn calibration_ready(
             "[calibration] scheduling playback - ready_rx_ts={}ms req_ts={}ms target_ts={}ms start_ts={}ms delay_ms={}",
             received_at, pending.requested_at, target, start_at, pending.delay_ms
         );
-        if let Err(err) = playback.play(&pending.chirp) {
+        if let Err(err) = playback.play(&request) {
             eprintln!("[calibration] playback failed: {err:?}");
         }
     });
@@ -226,6 +255,20 @@ async fn calibration_result(
 
 async fn receiver_info(State(state): State<ReceiverState>) -> Json<ReceiverInfo> {
     Json(state.info.clone())
+}
+
+#[derive(Debug, Serialize)]
+struct CalibrationSpecResponse {
+    spec: CalibrationSignalSpec,
+}
+
+async fn calibration_spec(State(state): State<ReceiverState>) -> Result<Json<CalibrationSpecResponse>, StatusCode> {
+    let Some(structured) = &state.structured else {
+        return Err(StatusCode::NOT_FOUND);
+    };
+    Ok(Json(CalibrationSpecResponse {
+        spec: structured.spec.clone(),
+    }))
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -283,7 +326,7 @@ pub struct ShairportSettingsManager<W: ConfigWriter + Send + Sync + 'static, C: 
 pub struct NoopPlaybackSink;
 
 impl PlaybackSink for NoopPlaybackSink {
-    fn play(&self, _chirp: &ChirpConfig) -> Result<()> {
+    fn play(&self, _request: &PlaybackRequest) -> Result<()> {
         Ok(())
     }
 }
@@ -296,8 +339,18 @@ pub struct SystemPlaybackSink {
 }
 
 impl SystemPlaybackSink {
-    pub fn new(sample_rate: u32, config: Arc<Mutex<ShairportConfig>>, gain: f32, pregen_path: Option<std::path::PathBuf>) -> Self {
-        Self { sample_rate, gain, config, pregen_path }
+    pub fn new(
+        sample_rate: u32,
+        config: Arc<Mutex<ShairportConfig>>,
+        gain: f32,
+        pregen_path: Option<std::path::PathBuf>,
+    ) -> Self {
+        Self {
+            sample_rate,
+            gain,
+            config,
+            pregen_path,
+        }
     }
 
     fn write_wave(&self, chirp: &ChirpConfig) -> Result<tempfile::NamedTempFile> {
@@ -323,13 +376,18 @@ impl SystemPlaybackSink {
 }
 
 impl PlaybackSink for SystemPlaybackSink {
-    fn play(&self, chirp: &ChirpConfig) -> Result<()> {
-        let use_pregen = chirp.amplitude.unwrap_or(1.0) >= 0.99 && self.pregen_path.is_some();
-        let wav_path = if use_pregen {
-            self.pregen_path.clone().unwrap()
-        } else {
-            let file = self.write_wave(chirp)?;
-            file.into_temp_path().keep()?
+    fn play(&self, request: &PlaybackRequest) -> Result<()> {
+        let wav_path = match request {
+            PlaybackRequest::Chirp(chirp) => {
+                let use_pregen = chirp.amplitude.unwrap_or(1.0) >= 0.99 && self.pregen_path.is_some();
+                if use_pregen {
+                    self.pregen_path.clone().unwrap()
+                } else {
+                    let file = self.write_wave(chirp)?;
+                    file.into_temp_path().keep()?
+                }
+            }
+            PlaybackRequest::File(path) => path.clone(),
         };
         let mut cmd = Command::new("aplay");
         let dev = { self.config.lock().unwrap().output_device.clone() };
@@ -449,6 +507,9 @@ mod tests {
     use serde_json::json;
     use tower::ServiceExt;
     use crate::generate_chirp_samples;
+    use airsync_shared_protocol::{CalibrationSignalSpec, MarkerKind, MarkerSpec};
+    use crate::calibration::signal::StructuredSignal;
+    use std::path::PathBuf;
 
     #[derive(Clone)]
     struct MockCalibrationSink {
@@ -480,7 +541,7 @@ mod tests {
 
     #[derive(Clone)]
     struct MockPlaybackSink {
-        last: Arc<Mutex<Option<ChirpConfig>>>,
+        last: Arc<Mutex<Option<PlaybackRequest>>>,
         calls: Arc<Mutex<u32>>,
         fail: bool,
     }
@@ -494,7 +555,7 @@ mod tests {
             }
         }
 
-        fn last(&self) -> Option<ChirpConfig> {
+        fn last(&self) -> Option<PlaybackRequest> {
             self.last.lock().unwrap().clone()
         }
 
@@ -504,9 +565,9 @@ mod tests {
 }
 
 impl PlaybackSink for MockPlaybackSink {
-        fn play(&self, chirp: &ChirpConfig) -> Result<()> {
+        fn play(&self, request: &PlaybackRequest) -> Result<()> {
             *self.calls.lock().unwrap() += 1;
-            *self.last.lock().unwrap() = Some(chirp.clone());
+            *self.last.lock().unwrap() = Some(request.clone());
             if self.fail {
                 return Err(anyhow!("fail"));
             }
@@ -568,6 +629,7 @@ impl PlaybackSink for MockPlaybackSink {
             Arc::new(MockCalibrationSink::new()),
             Arc::new(MockSettingsManager::new()),
             Arc::new(MockPlaybackSink::new()),
+            None,
         )
     }
 
@@ -613,6 +675,7 @@ impl PlaybackSink for MockPlaybackSink {
             sink.clone(),
             settings,
             playback,
+            None,
         );
         let app = router(state);
         let req_body = json!({
@@ -647,6 +710,7 @@ impl PlaybackSink for MockPlaybackSink {
             Arc::new(MockCalibrationSink::new()),
             settings.clone(),
             Arc::new(MockPlaybackSink::new()),
+            None,
         );
         let app = router(state);
 
@@ -685,6 +749,7 @@ impl PlaybackSink for MockPlaybackSink {
             Arc::new(MockCalibrationSink::new()),
             Arc::new(MockSettingsManager::new()),
             playback.clone(),
+            None,
         );
         let app = router(state);
         let req_body = json!({
@@ -724,8 +789,13 @@ impl PlaybackSink for MockPlaybackSink {
         tokio::time::sleep(Duration::from_millis(1800)).await;
         assert_eq!(playback.call_count(), 1);
         let last = playback.last().unwrap();
-        assert_eq!(last.start_freq, 2000);
-        assert_eq!(last.end_freq, 8000);
+        match last {
+            PlaybackRequest::Chirp(cfg) => {
+                assert_eq!(cfg.start_freq, 2000);
+                assert_eq!(cfg.end_freq, 8000);
+            }
+            _ => panic!("expected chirp playback"),
+        }
     }
 
     #[tokio::test]
@@ -740,6 +810,7 @@ impl PlaybackSink for MockPlaybackSink {
             Arc::new(MockCalibrationSink::new()),
             Arc::new(MockSettingsManager::new()),
             playback.clone(),
+            None,
         );
         let app = router(state);
         let req_body = json!({
@@ -775,6 +846,44 @@ impl PlaybackSink for MockPlaybackSink {
         assert_eq!(response.status(), StatusCode::OK);
         tokio::time::sleep(Duration::from_millis(1800)).await;
         assert_eq!(playback.call_count(), 1);
+    }
+
+    #[tokio::test]
+    async fn calibration_spec_returns_metadata_when_available() {
+        let spec = CalibrationSignalSpec {
+            sample_rate: 48_000,
+            length_samples: 1000,
+            markers: vec![MarkerSpec {
+                id: "m1".into(),
+                kind: MarkerKind::Click,
+                start_sample: 0,
+                duration_samples: 10,
+            }],
+        };
+        let structured = StructuredSignal {
+            spec: spec.clone(),
+            path: PathBuf::from("/tmp/structured.wav"),
+        };
+        let state = ReceiverState::new(
+            ReceiverInfo {
+                receiver_id: "rx-1".into(),
+                name: "Test".into(),
+                capabilities: vec!["calibration".into()],
+            },
+            Arc::new(MockCalibrationSink::new()),
+            Arc::new(MockSettingsManager::new()),
+            Arc::new(MockPlaybackSink::new()),
+            Some(structured),
+        );
+        let app = router(state);
+        let response = app
+            .oneshot(Request::get("/api/calibration/spec").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(payload["spec"]["sample_rate"], 48_000);
     }
 
     #[tokio::test]

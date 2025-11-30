@@ -1,6 +1,6 @@
 use crate::airplay::{render_config_file, ShairportConfig};
 use airsync_shared_protocol::CalibrationSubmission;
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -105,6 +105,8 @@ pub struct CalibrationOutcome {
     pub applied_offset_ms: f32,
     pub was_clamped: bool,
 }
+
+pub mod signal;
 
 #[cfg(test)]
 mod tests {

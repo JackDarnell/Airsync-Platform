@@ -24,11 +24,71 @@ impl Default for ChirpConfig {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn marker_spec_serializes() {
+        let spec = CalibrationSignalSpec {
+            sample_rate: 48_000,
+            length_samples: 240_000,
+            markers: vec![
+                MarkerSpec {
+                    id: "a".into(),
+                    kind: MarkerKind::Click,
+                    start_sample: 0,
+                    duration_samples: 480,
+                },
+                MarkerSpec {
+                    id: "chirp1".into(),
+                    kind: MarkerKind::Chirp {
+                        start_freq: 1_000,
+                        end_freq: 8_000,
+                        duration_ms: 100,
+                    },
+                    start_sample: 10_000,
+                    duration_samples: 4_800,
+                },
+            ],
+        };
+
+        let json = serde_json::to_string(&spec).unwrap();
+        assert!(json.contains("\"sample_rate\":48000"));
+        assert!(json.contains("\"kind\":{\"click\":[]}") || json.contains("\"kind\":\"click\""));
+        let round_trip: CalibrationSignalSpec = serde_json::from_str(&json).unwrap();
+        assert_eq!(round_trip.sample_rate, 48_000);
+        assert_eq!(round_trip.markers.len(), 2);
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CalibrationSubmission {
     pub timestamp: u64,
     pub latency_ms: f32,
     pub confidence: f32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MarkerKind {
+    Click,
+    Chirp { start_freq: u32, end_freq: u32, duration_ms: u32 },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MarkerSpec {
+    pub id: String,
+    pub kind: MarkerKind,
+    pub start_sample: u32,
+    pub duration_samples: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CalibrationSignalSpec {
+    pub sample_rate: u32,
+    pub length_samples: u32,
+    pub markers: Vec<MarkerSpec>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
