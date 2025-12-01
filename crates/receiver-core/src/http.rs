@@ -251,13 +251,20 @@ async fn calibration_ready(
             tokio::time::sleep(Duration::from_millis(wait_ms)).await;
         }
         let start_at = now_millis();
+        let slip = start_at as i64 - target as i64;
+        if slip.abs() > 50 {
+            eprintln!(
+                "[calibration] warning: playback slip_ms={} (target_ts={}, start_ts={})",
+                slip, target, start_at
+            );
+        }
         println!(
             "[calibration] scheduling playback - ready_rx_ts={}ms req_ts={}ms target_ts={}ms start_ts={}ms slip_ms={} delay_ms={}",
             received_at,
             pending.requested_at,
             target,
             start_at,
-            start_at as i64 - target as i64,
+            slip,
             pending.delay_ms
         );
         {
