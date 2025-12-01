@@ -33,8 +33,10 @@ pub fn generate_structured_signal(path: impl AsRef<Path>) -> Result<StructuredSi
                           markers: &mut Vec<MarkerSpec>| {
         let len = (duration_ms as usize * sample_rate as usize) / 1000;
         let start = *cursor;
-        for _ in 0..len {
-            samples.push((amp * i16::MAX as f32) as i16);
+        let window = len.saturating_sub(1) as f32;
+        for n in 0..len {
+            let w = 0.5 * (1.0 - (2.0 * PI * n as f32 / window).cos());
+            samples.push((amp * w * i16::MAX as f32) as i16);
         }
         *cursor += len;
         markers.push(MarkerSpec {
@@ -86,10 +88,12 @@ pub fn generate_structured_signal(path: impl AsRef<Path>) -> Result<StructuredSi
         let len = (duration_ms as usize * sample_rate as usize) / 1000;
         let start = *cursor;
         let sr = sample_rate as f32;
+        let window = len.saturating_sub(1) as f32;
         for n in 0..len {
             let t = n as f32 / sr;
             let phase = 2.0 * PI * freq_hz as f32 * t;
-            let sample = (phase.sin() * amp * i16::MAX as f32) as i16;
+            let w = 0.5 * (1.0 - (2.0 * PI * n as f32 / window).cos());
+            let sample = (phase.sin() * amp * w * i16::MAX as f32) as i16;
             samples.push(sample);
         }
         *cursor += len;
@@ -105,14 +109,50 @@ pub fn generate_structured_signal(path: impl AsRef<Path>) -> Result<StructuredSi
         });
     };
 
+    let push_sweep = |id: &str,
+                          start_freq: u32,
+                          end_freq: u32,
+                          duration_ms: u32,
+                          amp: f32,
+                          samples: &mut Vec<i16>,
+                          cursor: &mut usize,
+                          markers: &mut Vec<MarkerSpec>| {
+        let len = (duration_ms as usize * sample_rate as usize) / 1000;
+        let start = *cursor;
+        let sr = sample_rate as f32;
+        let window = len.saturating_sub(1) as f32;
+        for n in 0..len {
+            let t = n as f32 / sr;
+            let f0 = start_freq as f32;
+            let f1 = end_freq as f32;
+            let k = (f1 - f0) / (duration_ms as f32 / 1000.0);
+            let phase = 2.0 * PI * (f0 * t + 0.5 * k * t * t);
+            let w = 0.5 * (1.0 - (2.0 * PI * n as f32 / window).cos());
+            let sample = (phase.sin() * amp * w * i16::MAX as f32) as i16;
+            samples.push(sample);
+        }
+        *cursor += len;
+        markers.push(MarkerSpec {
+            id: id.to_string(),
+            kind: MarkerKind::Chirp {
+                start_freq: start_freq,
+                end_freq: end_freq,
+                duration_ms,
+            },
+            start_sample: start as u32,
+            duration_samples: len as u32,
+        });
+    };
+
     // Build signal
     push_hum("warmup", 120, 400, 0.12, &mut samples, &mut cursor, &mut markers);
     push_silence(80, &mut samples, &mut cursor);
-    push_click("click_a", 10, 0.9, &mut samples, &mut cursor, &mut markers);
+    push_click("click_a", 10, 0.8, &mut samples, &mut cursor, &mut markers);
+    push_sweep("sweep_anchor", 400, 9_000, 140, 0.7, &mut samples, &mut cursor, &mut markers);
     push_silence(200, &mut samples, &mut cursor);
 
-    let chirp_duration_ms = 100;
-    let gap_ms = 280;
+    let chirp_duration_ms = 120;
+    let gap_ms = 260;
     let freqs = [800, 1_000, 3_000, 6_000, 8_000, 10_000, 4_000];
     for (idx, freq) in freqs.iter().enumerate() {
         push_tone(
@@ -133,10 +173,10 @@ pub fn generate_structured_signal(path: impl AsRef<Path>) -> Result<StructuredSi
 
     // trailing hum to keep path alive briefly
     push_silence(60, &mut samples, &mut cursor);
-    push_hum("warmdown", 200, 200, 0.05, &mut samples, &mut cursor, &mut markers);
+    push_hum("warmdown", 200, 200, 0.03, &mut samples, &mut cursor, &mut markers);
 
-    // Ensure total length ~5s by padding if needed
-    let target_len = (5_000u32 as usize * sample_rate as usize) / 1000;
+    // Ensure total length ~4.5-5s by padding if needed
+    let target_len = (4_500u32 as usize * sample_rate as usize) / 1000;
     if cursor < target_len {
         samples.extend(std::iter::repeat(0i16).take(target_len - cursor));
         cursor = target_len;
@@ -177,8 +217,8 @@ mod tests {
         let path = dir.path().join("structured.wav");
         let signal = generate_structured_signal(&path).unwrap();
         assert!(path.exists());
-        assert!(signal.spec.markers.len() >= 6);
-        assert!(signal.spec.length_samples > 200_000); // ~>4s
+        assert!(signal.spec.markers.len() >= 7);
+        assert!(signal.spec.length_samples > 180_000); // ~>3.7s
         // Markers are ordered and within length
         let max_start = signal
             .spec

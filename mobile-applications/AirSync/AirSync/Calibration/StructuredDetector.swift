@@ -12,7 +12,7 @@ final class StructuredDetector {
     private let maxWindowMs: Double
     private let sampleRate: Double
 
-    init(sampleRate: Double, maxWindowMs: Double = 600) {
+    init(sampleRate: Double, maxWindowMs: Double = 800) {
         self.sampleRate = sampleRate
         self.maxWindowMs = maxWindowMs
     }
@@ -30,6 +30,7 @@ final class StructuredDetector {
         let maxOffset = Int(sampleRate * maxWindowMs / 1000.0)
         var detections: [StructuredDetection] = []
 
+        let minCorrelation = 0.35
         for marker in spec.markers {
             let reference = referenceFor(marker: marker, sampleRate: sampleRate)
             let expected = Int(marker.startSample) + startOffsetSamples
@@ -40,8 +41,11 @@ final class StructuredDetector {
                 maxOffset: maxOffset
             ) else { continue }
 
+            guard det.correlation >= minCorrelation else { continue }
+
             let latencySamples = det.sampleIndex - expected
             let latencyMs = (Double(latencySamples) / sampleRate) * 1000.0
+            print("marker \(marker.id) corr=\(det.correlation) idx=\(det.sampleIndex) latency_ms=\(latencyMs)")
             detections.append(
                 StructuredDetection(
                     markerId: marker.id,
@@ -54,13 +58,14 @@ final class StructuredDetector {
 
         let inliers = filterOutliers(detections)
         let averageLatency = inliers.map(\.latencyMs).average ?? 0
-        let confidence = confidenceScore(detections: inliers)
+        let clampedLatency = averageLatency < -5 ? 0 : averageLatency
+        let confidence = confidenceScore(detections: inliers, totalMarkers: spec.markers.count)
 
         let mappedDetections = inliers.map {
             LatencyDetection(latencyMs: $0.latencyMs, correlation: $0.correlation, sampleIndex: $0.sampleIndex)
         }
 
-        return LatencyMeasurement(latencyMs: averageLatency, confidence: confidence, detections: mappedDetections)
+        return LatencyMeasurement(latencyMs: clampedLatency, confidence: confidence, detections: mappedDetections)
     }
 
     private func referenceFor(marker: MarkerSpec, sampleRate: Double) -> [Float] {
@@ -157,12 +162,17 @@ final class StructuredDetector {
         return detections.filter { abs($0.latencyMs - median) <= threshold }
     }
 
-    private func confidenceScore(detections: [StructuredDetection]) -> Double {
+    private func confidenceScore(detections: [StructuredDetection], totalMarkers: Int) -> Double {
         guard !detections.isEmpty else { return 0 }
         let corr = detections.map(\.correlation).average ?? 0
         let spread = detections.map(\.latencyMs).stddev ?? 0
         let spreadPenalty = max(0, 1 - (spread / 5.0))
-        return (corr * 0.7 + spreadPenalty * 0.3).clamped(to: 0...1)
+        let coverage = min(1.0, Double(detections.count) / Double(max(1, totalMarkers)))
+        var score = (corr * 0.6 + spreadPenalty * 0.2 + coverage * 0.2).clamped(to: 0...1)
+        if detections.count < 2 {
+            score *= 0.5
+        }
+        return score
     }
 }
 

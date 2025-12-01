@@ -84,21 +84,22 @@ struct CalibrationView: View {
     }
 
     private var stepperSection: some View {
-        let steps = [
-            ("Scheduling playback", CalibrationStage.requestingPlayback),
-            ("Listening for markers", CalibrationStage.recording),
-            ("Analyzing recording", CalibrationStage.calculating),
-            ("Sending result", CalibrationStage.sending),
-            ("Completed", CalibrationStage.completed(LatencyMeasurement(latencyMs: 0, confidence: 0, detections: [])))
+        let steps: [(String, CalibrationStage, String)] = [
+            ("Scheduling playback", .requestingPlayback, "Contacting receiver…"),
+            ("Waiting for playback", .requestingPlayback, "Playback scheduled…"),
+            ("Listening for markers", .recording, "Recording microphone…"),
+            ("Analyzing recording", .calculating, "Detecting markers…"),
+            ("Sending result", .sending, "Applying latency…"),
+            ("Completed", .completed(LatencyMeasurement(latencyMs: 0, confidence: 0, detections: [])), "Done.")
         ]
 
         let currentIndex: Int = {
             switch session.stage {
-            case .requestingPlayback: return 0
-            case .recording: return 1
-            case .calculating: return 2
-            case .sending: return 3
-            case .completed, .failed: return 4
+            case .requestingPlayback: return 1 // show both scheduling and waiting
+            case .recording: return 2
+            case .calculating: return 3
+            case .sending: return 4
+            case .completed, .failed: return 5
             case .idle: return 0
             }
         }()
@@ -111,9 +112,14 @@ struct CalibrationView: View {
                     Circle()
                         .fill(idx == currentIndex ? Color.blue : Color.gray.opacity(0.4))
                         .frame(width: 10, height: 10)
-                    Text(item.0)
-                        .font(.footnote)
-                        .foregroundStyle(idx <= currentIndex ? .primary : .secondary)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(item.0)
+                            .font(.footnote)
+                            .foregroundStyle(idx <= currentIndex ? .primary : .secondary)
+                        Text(item.2)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
         }

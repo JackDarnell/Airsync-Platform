@@ -142,9 +142,11 @@ final class CalibrationSession: ObservableObject {
         do {
             try await microphoneAccess()
             print("Calibration starting with config: start=\(config.startFrequency)Hz end=\(config.endFrequency)Hz durationMs=\(config.durationMs) reps=\(config.repetitions) intervalMs=\(config.intervalMs) amp=\(config.amplitude)")
-            let serverTime = (try? await api.serverTimeMs()) ?? Self.timestampNow()
-            let targetStart = serverTime + playbackDelayMs + 1_000 // safety cushion
-            print("Calibration target start (server ms): \(targetStart) delay_ms=\(playbackDelayMs)")
+
+            let offset = await estimateServerOffsetMs() ?? 0
+            let serverNow = Double(Self.timestampNow()) + offset
+            let targetStart = UInt64(serverNow) + playbackDelayMs + 1_000 // safety cushion
+            print("Calibration target start (server ms): \(targetStart) delay_ms=\(playbackDelayMs) offset_ms=\(offset)")
 
             // Structured-only: require spec and request structured playback
             let spec = try await api.fetchCalibrationSpec()
@@ -154,8 +156,8 @@ final class CalibrationSession: ObservableObject {
             try await api.startPlayback(config, delayMs: playbackDelayMs, structured: true)
             let delaySeconds = Double(playbackDelayMs) / 1_000
             let lengthSeconds = Double(spec.lengthSamples) / Double(spec.sampleRate)
-            let recordDuration: TimeInterval = delaySeconds + lengthSeconds + 2.5
-            let total = recordDuration + 1.0
+            let recordDuration: TimeInterval = delaySeconds + lengthSeconds + 1.0
+            let total = recordDuration + 0.5
             expectedDuration = total
             startProgressTimer(totalDuration: total)
 
@@ -179,7 +181,7 @@ final class CalibrationSession: ObservableObject {
             print("Calibration recording finished, samples captured: \(recording.count) nonZero=\(nonZero) rms=\(rms) peak=\(peak)")
 
             stage = .calculating
-            startCalculationProgressTimer(totalDuration: 8)
+            startCalculationProgressTimer(totalDuration: 6)
             print("Calibration measuring latency...")
             let measurement: LatencyMeasurement
             let startOffsetSamples = Int(Double(playbackDelayMs) / 1000.0 * Double(spec.sampleRate))
@@ -294,6 +296,24 @@ final class CalibrationSession: ObservableObject {
 
     private static func timestampNow() -> UInt64 {
         UInt64(Date().timeIntervalSince1970 * 1_000)
+    }
+
+    private func estimateServerOffsetMs() async -> Double? {
+        var offsets: [Double] = []
+        for _ in 0..<2 {
+            let t0 = Self.timestampNow()
+            guard let server = try? await api.serverTimeMs() else { continue }
+            let t2 = Self.timestampNow()
+            let avgClient = Double(t0 + t2) / 2.0
+            let offset = Double(server) - avgClient
+            offsets.append(offset)
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+        guard !offsets.isEmpty else { return nil }
+        let sorted = offsets.sorted()
+        let mid = sorted.count / 2
+        let median = sorted.count % 2 == 0 ? (sorted[mid - 1] + sorted[mid]) / 2.0 : sorted[mid]
+        return median
     }
 
     private func handleMicLevel(_ rms: Float) {

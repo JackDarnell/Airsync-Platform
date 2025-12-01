@@ -400,11 +400,27 @@ impl PlaybackSink for SystemPlaybackSink {
             if dev.is_empty() { "<default>" } else { dev.as_str() },
             wav_path.to_string_lossy()
         );
-        let status = cmd.status();
-        match status {
-            Ok(s) if s.success() => Ok(()),
-            Ok(s) => Err(anyhow!("aplay failed with status {}", s)),
-            Err(e) => Err(anyhow!("failed to run aplay: {}", e)),
+        let run_cmd = |mut c: Command| -> Result<()> {
+            match c.status() {
+                Ok(s) if s.success() => Ok(()),
+                Ok(s) => Err(anyhow!("aplay failed with status {}", s)),
+                Err(e) => Err(anyhow!("failed to run aplay: {}", e)),
+            }
+        };
+        let mut retry_cmd = Command::new("aplay");
+        if !dev.is_empty() {
+            retry_cmd.args(["-D", dev.as_str()]);
+        }
+        retry_cmd.args(["-q", wav_path.to_str().unwrap_or("")]);
+
+        if let Err(e) = run_cmd(cmd) {
+            // Retry once after a brief pause (helps with transient device busy)
+            std::thread::sleep(std::time::Duration::from_millis(120));
+            println!("[calibration] retrying aplay after error: {e}");
+            run_cmd(retry_cmd).map_err(|e2| anyhow!("{e}; retry_error={e2}"))
+        } else {
+            println!("[calibration] aplay completed OK");
+            Ok(())
         }
     }
 }
