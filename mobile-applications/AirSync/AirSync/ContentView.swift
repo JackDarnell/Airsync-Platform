@@ -119,10 +119,13 @@ struct ContentView: View {
             }
             .navigationTitle("Select Receiver")
             .toolbar {
-                Button {
-                    browser.refresh()
-                } label: {
-                    Label("Refresh", systemImage: "arrow.clockwise")
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
+                        browser.refresh()
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.body.weight(.semibold))
+                    }
                 }
             }
             .onAppear {

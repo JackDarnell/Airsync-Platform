@@ -44,6 +44,7 @@ final class LatencyDetector {
 
             detections.append(
                 LatencyDetection(
+                    markerId: nil,
                     latencyMs: detection.latencyMs,
                     correlation: detection.correlation,
                     sampleIndex: detection.sampleIndex
@@ -85,7 +86,7 @@ final class LatencyDetector {
         let latencyMs = (Double(latencySamples) / sampleRate) * 1_000
         let confidence = bestCorrelation.clamped(to: 0...1)
 
-        return LatencyDetection(latencyMs: latencyMs, correlation: confidence, sampleIndex: bestStart)
+        return LatencyDetection(markerId: nil, latencyMs: latencyMs, correlation: confidence, sampleIndex: bestStart)
     }
 
     private func normalizedCorrelation(at start: Int, recording: [Float], reference: [Float]) -> Double {

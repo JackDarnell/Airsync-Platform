@@ -3,6 +3,7 @@ import Foundation
 
 struct StructuredDetection: Equatable {
     let markerId: String
+    let markerStartSample: Int
     let latencyMs: Double
     let correlation: Double
     let sampleIndex: Int
@@ -49,6 +50,7 @@ final class StructuredDetector {
             detections.append(
                 StructuredDetection(
                     markerId: marker.id,
+                    markerStartSample: Int(marker.startSample),
                     latencyMs: latencyMs,
                     correlation: det.correlation,
                     sampleIndex: det.sampleIndex
@@ -57,12 +59,29 @@ final class StructuredDetector {
         }
 
         let inliers = filterOutliers(detections)
-        let latencyMedian = inliers.map(\.latencyMs).median
-        let clampedLatency = latencyMedian < -5 ? 0 : latencyMedian
-        let confidence = confidenceScore(detections: inliers, totalMarkers: spec.markers.count)
+        let anchorCandidates = inliers.filter {
+            !isWarmMarker($0.markerId) && $0.markerStartSample >= Int(sampleRate / 2)
+        }
+        let anchors = anchorCandidates.isEmpty ? inliers : anchorCandidates
+
+        let playbackStarts = anchors.map { $0.sampleIndex - $0.markerStartSample }.sorted()
+        let playbackStartSamples = medianInt(playbackStarts) ?? 0
+
+        let latencySamples = playbackStartSamples - startOffsetSamples
+        let latencyMs = (Double(latencySamples) / sampleRate) * 1000.0
+        let clampedLatency = latencyMs < -5 ? 0 : latencyMs
+        let playbackStartMs = (Double(playbackStartSamples) / sampleRate) * 1000.0
+        print("Detector playback_start_ms=\(playbackStartMs) latency_ms=\(latencyMs) anchors=\(anchors.count)")
+
+        let confidence = confidenceScore(detections: anchors, totalMarkers: spec.markers.count)
 
         let mappedDetections = inliers.map {
-            LatencyDetection(latencyMs: $0.latencyMs, correlation: $0.correlation, sampleIndex: $0.sampleIndex)
+            LatencyDetection(
+                markerId: $0.markerId,
+                latencyMs: $0.latencyMs,
+                correlation: $0.correlation,
+                sampleIndex: $0.sampleIndex
+            )
         }
 
         return LatencyMeasurement(latencyMs: clampedLatency, confidence: confidence, detections: mappedDetections)
@@ -173,6 +192,20 @@ final class StructuredDetector {
             score *= 0.5
         }
         return score
+    }
+
+    private func isWarmMarker(_ id: String) -> Bool {
+        id.lowercased().contains("warm")
+    }
+
+    private func medianInt(_ values: [Int]) -> Int? {
+        guard !values.isEmpty else { return nil }
+        let sorted = values.sorted()
+        let mid = sorted.count / 2
+        if sorted.count % 2 == 0 {
+            return (sorted[mid - 1] + sorted[mid]) / 2
+        }
+        return sorted[mid]
     }
 }
 

@@ -7,11 +7,27 @@ struct CalibrationResultPayload: Codable, Equatable {
     let timestamp: UInt64
     let latencyMs: Double
     let confidence: Double
+    let detections: [DetectionPayload]
 
     enum CodingKeys: String, CodingKey {
         case timestamp
         case latencyMs = "latency_ms"
         case confidence
+        case detections
+    }
+}
+
+struct DetectionPayload: Codable, Equatable {
+    let markerId: String?
+    let sampleIndex: Int
+    let correlation: Double
+    let latencyMs: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case markerId = "marker_id"
+        case sampleIndex = "sample_index"
+        case correlation
+        case latencyMs = "latency_ms"
     }
 }
 
@@ -42,7 +58,12 @@ protocol MicrophoneRecorder {
         for duration: TimeInterval,
         sampleRate: Double,
         levelHandler: @escaping (Float) -> Void
-    ) async throws -> [Float]
+    ) async throws -> RecordedAudio
+}
+
+struct RecordedAudio {
+    let samples: [Float]
+    let startedAtMs: UInt64
 }
 
 enum CalibrationStage: Equatable {
@@ -138,15 +159,12 @@ final class CalibrationSession: ObservableObject {
         progress = 0
         calculationProgress = 0
         stage = .requestingPlayback
-        var recordingTask: Task<[Float], Error>?
+        var recordingTask: Task<RecordedAudio, Error>?
         do {
             try await microphoneAccess()
             print("Calibration starting with config: start=\(config.startFrequency)Hz end=\(config.endFrequency)Hz durationMs=\(config.durationMs) reps=\(config.repetitions) intervalMs=\(config.intervalMs) amp=\(config.amplitude)")
 
             let offset = await estimateServerOffsetMs() ?? 0
-            let serverNow = Double(Self.timestampNow()) + offset
-            let targetStart = UInt64(serverNow) + playbackDelayMs + 1_000 // safety cushion
-            print("Calibration target start (server ms): \(targetStart) delay_ms=\(playbackDelayMs) offset_ms=\(offset)")
 
             // Structured-only: require spec and request structured playback
             let spec = try await api.fetchCalibrationSpec()
@@ -162,6 +180,11 @@ final class CalibrationSession: ObservableObject {
             startProgressTimer(totalDuration: total)
 
             stage = .recording
+            let clientNowMs = Self.timestampNow()
+            let serverNow = Double(clientNowMs) + offset
+            let targetStart = UInt64(serverNow) + playbackDelayMs + 1_000 // safety cushion
+            print("Calibration target start (server ms): \(targetStart) offset_ms=\(offset)")
+
             recordingTask = Task {
                 print("Calibration recording started for \(recordDuration)s at sampleRate \(sampleRate)Hz")
                 return try await recorder.record(
@@ -174,20 +197,24 @@ final class CalibrationSession: ObservableObject {
                 )
             }
             try await api.triggerPlayback(targetStartMs: targetStart)
-            let recording = try await recordingTask?.value ?? []
-            let rms = Self.rms(recording)
-            let peak = recording.map { abs($0) }.max() ?? 0
-            let nonZero = recording.filter { $0 != 0 }.count
-            print("Calibration recording finished, samples captured: \(recording.count) nonZero=\(nonZero) rms=\(rms) peak=\(peak)")
+            let recording = try await recordingTask?.value ?? RecordedAudio(samples: [], startedAtMs: Self.timestampNow())
+            let rms = Self.rms(recording.samples)
+            let peak = recording.samples.map { abs($0) }.max() ?? 0
+            let nonZero = recording.samples.filter { $0 != 0 }.count
+            print("Calibration recording finished, samples captured: \(recording.samples.count) nonZero=\(nonZero) rms=\(rms) peak=\(peak) started_at_ms=\(recording.startedAtMs)")
 
             stage = .calculating
             startCalculationProgressTimer(totalDuration: 6)
             print("Calibration measuring latency...")
+            let expectedStartClientMs = Double(targetStart) - offset
+            let leadMs = max(0, expectedStartClientMs - Double(recording.startedAtMs))
+            let startOffsetSamples = max(0, Int((leadMs / 1000.0) * sampleRate))
+            print("Calibration alignment: lead_ms=\(leadMs) start_offset_samples=\(startOffsetSamples)")
+
             let measurement: LatencyMeasurement
-            let startOffsetSamples = Int(Double(playbackDelayMs) / 1000.0 * Double(spec.sampleRate))
             let detector = StructuredDetector(sampleRate: Double(spec.sampleRate))
             measurement = detector.measure(
-                recording: recording,
+                recording: recording.samples,
                 spec: spec,
                 startOffsetSamples: startOffsetSamples
             )
@@ -208,7 +235,15 @@ final class CalibrationSession: ObservableObject {
             let payload = CalibrationResultPayload(
                 timestamp: Self.timestampNow(),
                 latencyMs: measurement.latencyMs,
-                confidence: measurement.confidence
+                confidence: measurement.confidence,
+                detections: measurement.detections.map {
+                    DetectionPayload(
+                        markerId: $0.markerId,
+                        sampleIndex: $0.sampleIndex,
+                        correlation: $0.correlation,
+                        latencyMs: $0.latencyMs
+                    )
+                }
             )
 
             try await api.submitResult(payload)
@@ -377,7 +412,15 @@ extension CalibrationSession {
             let payload = CalibrationResultPayload(
                 timestamp: Self.timestampNow(),
                 latencyMs: measurement.latencyMs,
-                confidence: measurement.confidence
+                confidence: measurement.confidence,
+                detections: measurement.detections.map {
+                    DetectionPayload(
+                        markerId: $0.markerId,
+                        sampleIndex: $0.sampleIndex,
+                        correlation: $0.correlation,
+                        latencyMs: $0.latencyMs
+                    )
+                }
             )
             try await api.submitResult(payload)
             stage = .completed(measurement)
@@ -393,9 +436,10 @@ private struct SilentRecorder: MicrophoneRecorder {
         for duration: TimeInterval,
         sampleRate: Double,
         levelHandler: @escaping (Float) -> Void
-    ) async throws -> [Float] {
+    ) async throws -> RecordedAudio {
         let frameCount = Int((duration * sampleRate).rounded(.up))
-        return Array(repeating: 0, count: frameCount)
+        let nowMs = UInt64(Date().timeIntervalSince1970 * 1_000)
+        return RecordedAudio(samples: Array(repeating: 0, count: frameCount), startedAtMs: nowMs)
     }
 }
 
@@ -414,7 +458,7 @@ final class AVMicrophoneRecorder: MicrophoneRecorder {
         for duration: TimeInterval,
         sampleRate: Double,
         levelHandler: @escaping (Float) -> Void
-    ) async throws -> [Float] {
+    ) async throws -> RecordedAudio {
         let engine = AVAudioEngine()
         let input = engine.inputNode
         let format = AVAudioFormat(
@@ -433,20 +477,21 @@ final class AVMicrophoneRecorder: MicrophoneRecorder {
         try AVAudioSession.sharedInstance().setActive(true, options: [])
 
         var collected: [Float] = []
+        var startedAtMs: UInt64?
         let targetFrames = Int((duration * sampleRate).rounded(.up))
 
         return try await withCheckedThrowingContinuation { continuation in
             var finished = false
 
-            func finish(_ result: Result<[Float], Error>) {
+            func finish(_ result: Result<RecordedAudio, Error>) {
                 guard !finished else { return }
                 finished = true
                 input.removeTap(onBus: 0)
                 engine.stop()
 
                 switch result {
-                case let .success(samples):
-                    continuation.resume(returning: samples)
+                case let .success(audio):
+                    continuation.resume(returning: audio)
                 case let .failure(error):
                     continuation.resume(throwing: error)
                 }
@@ -457,11 +502,15 @@ final class AVMicrophoneRecorder: MicrophoneRecorder {
                 let frameLength = Int(buffer.frameLength)
                 let pointer = UnsafeBufferPointer(start: channelData[0], count: frameLength)
                 collected.append(contentsOf: pointer)
+                if startedAtMs == nil {
+                    startedAtMs = UInt64(Date().timeIntervalSince1970 * 1_000)
+                }
                 levelHandler(Self.bufferRMS(pointer))
 
                 if collected.count >= targetFrames {
                     let trimmed = Array(collected.prefix(targetFrames))
-                    finish(.success(trimmed))
+                    let nowMs = UInt64(Date().timeIntervalSince1970 * 1_000)
+                    finish(.success(RecordedAudio(samples: trimmed, startedAtMs: startedAtMs ?? nowMs)))
                 }
             }
 
@@ -475,7 +524,8 @@ final class AVMicrophoneRecorder: MicrophoneRecorder {
             Task {
                 try? await Task.sleep(nanoseconds: UInt64((duration + 0.1) * 1_000_000_000))
                 let trimmed = Array(collected.prefix(min(collected.count, targetFrames)))
-                finish(.success(trimmed))
+                let nowMs = UInt64(Date().timeIntervalSince1970 * 1_000)
+                finish(.success(RecordedAudio(samples: trimmed, startedAtMs: startedAtMs ?? nowMs)))
             }
         }
     }

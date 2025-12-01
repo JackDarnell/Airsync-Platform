@@ -1,6 +1,7 @@
 import Foundation
 
 struct LatencyDetection: Equatable {
+    let markerId: String?
     let latencyMs: Double
     let correlation: Double
     let sampleIndex: Int

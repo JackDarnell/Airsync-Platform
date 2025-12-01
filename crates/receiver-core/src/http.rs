@@ -61,6 +61,18 @@ pub struct CalibrationResultPayload {
     pub timestamp: u64,
     pub latency_ms: f32,
     pub confidence: f32,
+    #[serde(default)]
+    pub detections: Vec<DetectionPayload>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct DetectionPayload {
+    #[serde(default)]
+    pub marker_id: Option<String>,
+    pub sample_index: u32,
+    pub correlation: f32,
+    #[serde(default)]
+    pub latency_ms: Option<f32>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -77,6 +89,7 @@ pub struct ReceiverState {
     settings: Arc<dyn SettingsManager + Send + Sync>,
     playback: Arc<dyn PlaybackSink + Send + Sync>,
     pending_playback: Arc<Mutex<Option<PendingPlayback>>>,
+    last_timing: Arc<Mutex<Option<PlaybackTiming>>>,
     structured: Option<crate::calibration::signal::StructuredSignal>,
 }
 
@@ -85,6 +98,15 @@ struct PendingPlayback {
     request: PlaybackRequest,
     delay_ms: u64,
     requested_at: u64,
+}
+
+#[derive(Clone, Debug)]
+struct PlaybackTiming {
+    target_ts: u64,
+    start_ts: u64,
+    ready_rx_ts: u64,
+    request_ts: u64,
+    delay_ms: u64,
 }
 
 impl ReceiverState {
@@ -101,6 +123,7 @@ impl ReceiverState {
             settings,
             playback,
             pending_playback: Arc::new(Mutex::new(None)),
+            last_timing: Arc::new(Mutex::new(None)),
             structured,
         }
     }
@@ -229,11 +252,34 @@ async fn calibration_ready(
         }
         let start_at = now_millis();
         println!(
-            "[calibration] scheduling playback - ready_rx_ts={}ms req_ts={}ms target_ts={}ms start_ts={}ms delay_ms={}",
-            received_at, pending.requested_at, target, start_at, pending.delay_ms
+            "[calibration] scheduling playback - ready_rx_ts={}ms req_ts={}ms target_ts={}ms start_ts={}ms slip_ms={} delay_ms={}",
+            received_at,
+            pending.requested_at,
+            target,
+            start_at,
+            start_at as i64 - target as i64,
+            pending.delay_ms
         );
+        {
+            let mut last = state.last_timing.lock().unwrap();
+            *last = Some(PlaybackTiming {
+                target_ts: target,
+                start_ts: start_at,
+                ready_rx_ts: received_at,
+                request_ts: pending.requested_at,
+                delay_ms: pending.delay_ms,
+            });
+        }
         if let Err(err) = playback.play(&request) {
             eprintln!("[calibration] playback failed: {err:?}");
+        } else {
+            let completed_at = now_millis();
+            println!(
+                "[calibration] playback completed start_ts={}ms complete_ts={}ms duration_ms={}",
+                start_at,
+                completed_at,
+                completed_at.saturating_sub(start_at)
+            );
         }
     });
 
@@ -248,7 +294,46 @@ async fn calibration_result(
         timestamp: req.timestamp,
         latency_ms: req.latency_ms,
         confidence: req.confidence,
+        detections: req
+            .detections
+            .iter()
+            .map(|d| airsync_shared_protocol::DetectionReport {
+                marker_id: d.marker_id.clone(),
+                sample_index: d.sample_index,
+                correlation: d.correlation,
+                latency_ms: d.latency_ms,
+            })
+            .collect(),
     };
+    if !submission.detections.is_empty() {
+        let timing = state.last_timing.lock().unwrap().clone();
+        if let Some(t) = timing {
+            println!(
+                "[calibration] received detections: count={} target_ts={} start_ts={} slip_ms={} latency_ms={} top_corr={}",
+                submission.detections.len(),
+                t.target_ts,
+                t.start_ts,
+                t.start_ts as i64 - t.target_ts as i64,
+                submission.latency_ms,
+                submission
+                    .detections
+                    .iter()
+                    .map(|d| d.correlation)
+                    .fold(0.0f32, f32::max)
+            );
+        } else {
+            println!(
+                "[calibration] received detections: count={} latency_ms={} top_corr={}",
+                submission.detections.len(),
+                submission.latency_ms,
+                submission
+                    .detections
+                    .iter()
+                    .map(|d| d.correlation)
+                    .fold(0.0f32, f32::max)
+            );
+        }
+    }
     let applied = state.calibration.apply(&submission).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(applied))
 }

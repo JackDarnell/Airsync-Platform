@@ -224,6 +224,7 @@ mod tests {
             timestamp: 1_234,
             latency_ms: 30.0,
             confidence: 0.92,
+            detections: vec![],
         };
 
         let outcome = applier.apply_submission(config, &submission).unwrap();

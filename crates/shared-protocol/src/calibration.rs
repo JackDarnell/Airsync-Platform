@@ -67,6 +67,18 @@ pub struct CalibrationSubmission {
     pub timestamp: u64,
     pub latency_ms: f32,
     pub confidence: f32,
+    #[serde(default)]
+    pub detections: Vec<DetectionReport>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DetectionReport {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub marker_id: Option<String>,
+    pub sample_index: u32,
+    pub correlation: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latency_ms: Option<f32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

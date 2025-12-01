@@ -83,17 +83,18 @@ private final class MockRecorder: MicrophoneRecorder {
         self.sampleRate = sampleRate
     }
 
-    func record(for duration: TimeInterval, sampleRate: Double, levelHandler: @escaping (Float) -> Void) async throws -> [Float] {
+    func record(for duration: TimeInterval, sampleRate: Double, levelHandler: @escaping (Float) -> Void) async throws -> RecordedAudio {
         XCTAssertEqual(sampleRate, self.sampleRate, accuracy: 0.1)
         if let first = samples.first {
             levelHandler(first)
         }
-        return samples
+        let nowMs = UInt64(Date().timeIntervalSince1970 * 1_000)
+        return RecordedAudio(samples: samples, startedAtMs: nowMs)
     }
 }
 
 private final class FailingRecorder: MicrophoneRecorder {
-    func record(for duration: TimeInterval, sampleRate: Double, levelHandler: @escaping (Float) -> Void) async throws -> [Float] {
+    func record(for duration: TimeInterval, sampleRate: Double, levelHandler: @escaping (Float) -> Void) async throws -> RecordedAudio {
         throw NSError(domain: "Recorder", code: -1)
     }
 }
