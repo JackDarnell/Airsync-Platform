@@ -12,64 +12,65 @@ struct CalibrationView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 24) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Audio Calibration")
-                    .font(.title.weight(.semibold))
-                Text("Place your iPhone near the primary speaker. The receiver will play a short chirp sequence to measure latency.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-
-            statusView
-            frequencyRangeSection
-            stepperSection
-            progressSection
-            calculationSection
-            volumeSection
-            applySection
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Latest Measurement")
-                    .font(.headline)
-                if let measurement = session.latestMeasurement {
-                    Text("Latency: \(Int(measurement.latencyMs)) ms")
-                    Text("Confidence: \(Int(measurement.confidence * 100))%")
-                    Text("Detections: \(measurement.detections.count)")
-                } else {
-                    Text("No calibration data yet.")
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Audio Calibration")
+                        .font(.title.weight(.semibold))
+                    Text("Place your iPhone near the primary speaker. The receiver will play a short sequence to measure latency.")
+                        .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
-            }
 
-            Spacer()
+                statusView
+                frequencyRangeSection
+                currentStepCard
+                progressSection
+                calculationSection
+                volumeSection
+                applySection
 
-            Button {
-                Task {
-                    session.setAmplitude(volume)
-                    isCalibrating = true
-                    await session.start()
-                    isCalibrating = false
-                }
-            } label: {
-                HStack {
-                    if isCalibrating {
-                        ProgressView()
-                            .progressViewStyle(.circular)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Latest Measurement")
+                        .font(.headline)
+                    if let measurement = session.latestMeasurement {
+                        Text("Latency: \(Int(measurement.latencyMs)) ms")
+                        Text("Confidence: \(Int(measurement.confidence * 100))%")
+                        Text("Detections: \(measurement.detections.count)")
+                    } else {
+                        Text("No calibration data yet.")
+                            .foregroundStyle(.secondary)
                     }
-                    Text(calibrationButtonText)
-                        .fontWeight(.semibold)
                 }
-                .frame(maxWidth: .infinity)
-                .padding()
-                .background(Color.accentColor)
-                .foregroundStyle(.white)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
+
+                Button {
+                    Task {
+                        session.setAmplitude(volume)
+                        isCalibrating = true
+                        await session.start()
+                        isCalibrating = false
+                    }
+                } label: {
+                    HStack {
+                        if isCalibrating {
+                            ProgressView()
+                                .progressViewStyle(.circular)
+                        }
+                        Text(calibrationButtonText)
+                            .fontWeight(.semibold)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(Color.accentColor)
+                    .foregroundStyle(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                }
+                .disabled(isCalibrating)
             }
-            .disabled(isCalibrating)
+            .padding()
         }
-        .padding()
         .navigationTitle("Calibration")
+        .navigationBarTitleDisplayMode(.inline)
     }
 
     private var statusView: some View {
@@ -83,43 +84,39 @@ struct CalibrationView: View {
         }
     }
 
-    private var stepperSection: some View {
-        let steps: [(String, CalibrationStage, String)] = [
-            ("Scheduling playback", .requestingPlayback, "Contacting receiver…"),
-            ("Waiting for playback", .requestingPlayback, "Playback scheduled…"),
-            ("Listening for markers", .recording, "Recording microphone…"),
-            ("Analyzing recording", .calculating, "Detecting markers…"),
-            ("Sending result", .sending, "Applying latency…"),
-            ("Completed", .completed(LatencyMeasurement(latencyMs: 0, confidence: 0, detections: [])), "Done.")
-        ]
-
-        let currentIndex: Int = {
+    private var currentStepCard: some View {
+        let (title, subtitle): (String, String) = {
             switch session.stage {
-            case .requestingPlayback: return 1 // show both scheduling and waiting
-            case .recording: return 2
-            case .calculating: return 3
-            case .sending: return 4
-            case .completed, .failed: return 5
-            case .idle: return 0
+            case .requestingPlayback:
+                return ("Scheduling playback", "Contacting receiver and scheduling start…")
+            case .recording:
+                return ("Listening for markers", "Recording microphone…")
+            case .calculating:
+                return ("Analyzing recording", "Detecting markers…")
+            case .sending:
+                return ("Sending result", "Applying latency to receiver…")
+            case .completed:
+                return ("Completed", "Calibration finished.")
+            case .failed(let message):
+                return ("Calibration failed", message)
+            case .idle:
+                return ("Ready", "Tap Start to calibrate.")
             }
         }()
 
         return VStack(alignment: .leading, spacing: 8) {
-            Text("Steps")
+            Text("Step")
                 .font(.headline)
-            ForEach(Array(steps.enumerated()), id: \.offset) { idx, item in
-                HStack(spacing: 8) {
-                    Circle()
-                        .fill(idx == currentIndex ? Color.blue : Color.gray.opacity(0.4))
-                        .frame(width: 10, height: 10)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(item.0)
-                            .font(.footnote)
-                            .foregroundStyle(idx <= currentIndex ? .primary : .secondary)
-                        Text(item.2)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
+            HStack(spacing: 10) {
+                ProgressView()
+                    .progressViewStyle(.circular)
+                    .opacity(session.stage.isTerminal ? 0 : 1)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.subheadline.weight(.semibold))
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
         }
@@ -170,24 +167,24 @@ struct CalibrationView: View {
     }
 
     private var progressSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Progress")
-                .font(.headline)
-            ProgressView(value: session.progress)
-                .progressViewStyle(.linear)
-            if session.progress > 0 && session.progress < 1 {
-                let percent = Int(session.progress * 100)
-                Text("\(percent)% (estimated)")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            } else if session.stage.isTerminal {
-                Text("Done")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            } else {
-                Text("Waiting to start...")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+        Group {
+            if !session.stage.isTerminal {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Progress")
+                        .font(.headline)
+                    ProgressView(value: session.progress)
+                        .progressViewStyle(.linear)
+                    if session.progress > 0 && session.progress < 1 {
+                        let percent = Int(session.progress * 100)
+                        Text("\(percent)% (estimated)")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("Waiting to start...")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
         }
     }

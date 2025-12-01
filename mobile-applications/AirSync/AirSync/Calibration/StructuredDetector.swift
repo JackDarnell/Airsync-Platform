@@ -12,7 +12,7 @@ final class StructuredDetector {
     private let maxWindowMs: Double
     private let sampleRate: Double
 
-    init(sampleRate: Double, maxWindowMs: Double = 800) {
+    init(sampleRate: Double, maxWindowMs: Double = 1200) {
         self.sampleRate = sampleRate
         self.maxWindowMs = maxWindowMs
     }
@@ -30,7 +30,7 @@ final class StructuredDetector {
         let maxOffset = Int(sampleRate * maxWindowMs / 1000.0)
         var detections: [StructuredDetection] = []
 
-        let minCorrelation = 0.35
+        let minCorrelation = 0.25
         for marker in spec.markers {
             let reference = referenceFor(marker: marker, sampleRate: sampleRate)
             let expected = Int(marker.startSample) + startOffsetSamples
@@ -57,8 +57,8 @@ final class StructuredDetector {
         }
 
         let inliers = filterOutliers(detections)
-        let averageLatency = inliers.map(\.latencyMs).average ?? 0
-        let clampedLatency = averageLatency < -5 ? 0 : averageLatency
+        let latencyMedian = inliers.map(\.latencyMs).median
+        let clampedLatency = latencyMedian < -5 ? 0 : latencyMedian
         let confidence = confidenceScore(detections: inliers, totalMarkers: spec.markers.count)
 
         let mappedDetections = inliers.map {
