@@ -8,33 +8,26 @@ Increase hardware latency accuracy and confidence by using a structured pre-gene
 - iOS records with a pre/post window, correlates against the chirp sequence, and averages detections. Confidence is correlation-based; can be low (e.g., ~5%) and sometimes misses.
 - UI shows a mic pulse indicator (recent change) but confidence can still be low.
 
-## Proposed Signal
-- Pre-generate a fixed WAV on the receiver at install/startup:
-  - Sample rate: 48 kHz, mono, 16-bit.
-  - Duration: ~3–5 s.
+## Implemented Signal (structured mode)
+- Pre-generated WAV on the receiver at install/startup:
+  - Sample rate: 48 kHz, mono, 16-bit; stored at `/usr/local/share/airsync/structured_cal.wav`.
+  - Duration: ~5 s with padded silence.
   - Structure:
-    1. Marker A: broadband click at t=0.
-    2. Silence: 200 ms.
-    3. Marker burst: 6–8 short chirps spaced 250 ms; freqs spread (e.g., 1 kHz, 3 kHz, 6 kHz, 8 kHz, 10 kHz) with Hanning window.
-    4. Trailing Marker B: broadband click near end (e.g., t=3 s) to detect truncation.
-  - Amplitude: 0.9–0.95 (avoid clipping).
-  - Metadata: expected start sample for each marker in a shared struct (length + positions).
+    1. Warm-up hum (120 Hz, low amp) to keep amps awake.
+    2. Click A, then 200 ms silence.
+    3. Marker burst: multiple short windowed tones (≈100 ms) across freqs: 0.8–10 kHz spread, spaced ≈280 ms.
+    4. Trailing click B plus light warm-down hum.
+  - Amplitude: ~0.9 for markers, gentle for hum.
+  - Metadata: expected start/duration per marker + total length returned via `GET /api/calibration/spec`.
 
 ## Clock Alignment
-- Continue scheduling playback in the future (server time now + 2–3 s).
-- iOS performs `/api/time` twice; uses median offset/RTT to estimate server time for windowing only. Latency is computed purely from audio alignment (not wall clock).
-- Recording window = expected signal length + generous pad (e.g., +1 s) to absorb residual offset.
+- Playback scheduled in the future (server time now + ≈3 s) using `/api/calibration/request` + `/api/calibration/ready`.
+- Recording window = delay + signal length + extra pad (~2.5 s) so the mic is armed before/after playback.
 
 ## Detection Algorithm (iOS)
-- Load the known signal definition (markers list).
-- For each marker type:
-  - Use matched filtering (cross-correlation) against the recorded audio.
-  - Find peak; apply sub-sample interpolation (parabolic fit) for <0.1 ms resolution at 48 kHz.
-  - Compute SNR/correlation score.
-- Aggregate:
-  - Convert peak sample indices to latency: measured_start - expected_start.
-  - Reject outliers (e.g., MAD-based).
-  - Average remaining offsets; confidence = function of peak SNR, consistency across markers, and count of inliers.
+- Fetch spec → matched filtering over known markers with sub-sample peak fit.
+- Outlier rejection + confidence derived from correlation strength + agreement across markers.
+- UI shows mic pulse + frequency range of markers; structured detector runs for all calibrations.
 
 ## Protocol Changes
 - Extend shared protocol to include a “structured” playback mode:
@@ -43,25 +36,16 @@ Increase hardware latency accuracy and confidence by using a structured pre-gene
 - Continue to support amplitude scaling if needed (but prefer fixed amplitude for consistency).
 
 ## Receiver Changes
-- Generate and persist structured WAV at install/startup (e.g., `/usr/local/share/airsync/structured_cal.wav`).
-- Expose marker metadata via the API (either in calibration request response or a dedicated endpoint).
-- Playback uses the pre-generated file for structured mode; still schedules by server time.
-- Tests: unit test generator (positions, length, energy), integration test for HTTP response including metadata, and that playback selects pregen file.
+- Structured WAV generation/persistence done at service start/installer.
+- `GET /api/calibration/spec` returns marker metadata.
+- Playback uses pre-generated file for structured mode (with warm-up hum); scheduled via `/ready`.
+- Tests cover generator length/markers and spec endpoint.
 
 ## iOS Changes
-- Add model for marker metadata and structured signal definition.
-- Add detection pipeline with matched filters and sub-sample peak interpolation.
-- Add clock-offset helper (two-sample `/api/time`).
-- Update calibration flow to:
-  1) Fetch marker metadata (or receive via request response).
-  2) Schedule playback for future time.
-  3) Record with padding.
-  4) Run marker detection, compute latency/confidence, and display result.
-- UI: keep mic pulse; optionally show “markers detected: N/M”.
-- Tests:
-  - Unit: peak interpolation, matched-filter correctness on synthetic data with known offsets.
-  - Unit: outlier rejection, confidence computation.
-  - Integration (offline): generate synthetic recording with inserted markers + noise; ensure detector finds correct latency.
+- Structured mode enforced; fetch spec before every calibration.
+- Longer record window; matched-filter detector with sub-sample interpolation and detection counts.
+- UI shows mic pulse + frequency range; latest measurement shows detections and confidence.
+- Tests cover decoder robustness and detector on synthetic signals.
 
 ## TDD / Iteration Plan
 1) Add shared protocol structs for structured signal + marker metadata (unit tests for serialization).

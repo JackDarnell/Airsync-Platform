@@ -23,6 +23,7 @@ struct CalibrationView: View {
 
             statusView
             frequencyRangeSection
+            stepperSection
             progressSection
             calculationSection
             volumeSection
@@ -79,6 +80,42 @@ struct CalibrationView: View {
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
             micIndicator
+        }
+    }
+
+    private var stepperSection: some View {
+        let steps = [
+            ("Scheduling playback", CalibrationStage.requestingPlayback),
+            ("Listening for markers", CalibrationStage.recording),
+            ("Analyzing recording", CalibrationStage.calculating),
+            ("Sending result", CalibrationStage.sending),
+            ("Completed", CalibrationStage.completed(LatencyMeasurement(latencyMs: 0, confidence: 0, detections: [])))
+        ]
+
+        let currentIndex: Int = {
+            switch session.stage {
+            case .requestingPlayback: return 0
+            case .recording: return 1
+            case .calculating: return 2
+            case .sending: return 3
+            case .completed, .failed: return 4
+            case .idle: return 0
+            }
+        }()
+
+        return VStack(alignment: .leading, spacing: 8) {
+            Text("Steps")
+                .font(.headline)
+            ForEach(Array(steps.enumerated()), id: \.offset) { idx, item in
+                HStack(spacing: 8) {
+                    Circle()
+                        .fill(idx == currentIndex ? Color.blue : Color.gray.opacity(0.4))
+                        .frame(width: 10, height: 10)
+                    Text(item.0)
+                        .font(.footnote)
+                        .foregroundStyle(idx <= currentIndex ? .primary : .secondary)
+                }
+            }
         }
     }
 

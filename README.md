@@ -6,7 +6,7 @@ Built in **Rust** for maximum performance, minimal memory footprint, and memory 
 
 ## Current State
 
-**Status**: Receiver service and pairing flow implemented; installer provisions systemd + Avahi.
+**Status**: Receiver service, Bonjour discovery, and structured calibration implemented; installer provisions systemd + Avahi and pre-generates calibration signals.
 
 ### What's Complete
 
@@ -19,13 +19,16 @@ Built in **Rust** for maximum performance, minimal memory footprint, and memory 
 - ✅ Shairport-sync config generator
   - Dynamic config generation with audio output mapping, soxr interpolation, buffer sizing, cover art
 - ✅ Receiver HTTP service (Axum)
-  - Pairing endpoints: `/api/pairing/start`, `/api/pairing/confirm` (no tokens; soft code confirmation)
-  - Calibration endpoints: `/api/calibration/request`, `/api/calibration/result` apply latency via shairport config + restart
+  - Discovery: Avahi TXT for `_airsync._tcp` with name/ver/api/caps/id
+  - Calibration (structured mode): `/api/calibration/spec`, `/api/calibration/request`, `/api/calibration/ready`, `/api/calibration/result`
+    - Pre-generated 48 kHz structured WAV with marker metadata
+    - Warm-up hum + multi-frequency markers for reliable detection
+    - Applies latency via shairport config + restart
   - Settings endpoints: `/api/settings` (GET/POST) update shairport config and restart shairport-sync
-  - Receiver info + Avahi TXT helpers for `_airsync._tcp`
+  - Receiver info endpoint and TXT helpers
 - ✅ CLI tools: `airsync-detect`, `airsync-generate-config`, `airsync-receiver-service` binary
 - ✅ Installer provisions
-  - Builds/installs receiver service
+  - Builds/installs receiver service and pre-generated calibration WAV
   - Installs systemd unit for receiver service and shairport-sync
   - Publishes Avahi `_airsync._tcp` with caps/name/id
   - Creates state dir `/var/lib/airsync` for receiver_id/cache
@@ -175,21 +178,12 @@ Tests follow the 80/15/5 pyramid:
 - **Integration tests (15%)**: In `tests/` directory (coming soon)
 - **E2E tests (5%)**: Full system tests with Docker Pi emulator (coming soon)
 
-### Current Test Results
+### Current Test Results (local)
 
 ```
-✓ 37 tests passing across workspace
-
-Receiver Core (31 tests):
-  ✓ Hardware detection (CPU/RAM/board/audio outputs)
-  ✓ Shairport config generation/rendering
-  ✓ Calibration applier (offset/clamping/restart)
-  ✓ Pairing flow (start/confirm with TTL)
-  ✓ Settings API (updates config + restarts shairport)
-  ✓ Avahi service rendering and receiver_id persistence
-
-Shared Protocol (6 tests):
-  ✓ Device capability helpers and validation
+✓ Receiver Core (38 tests) — hardware detection, shairport config, calibration applier, structured calibration spec + playback, Avahi/TXT helpers, settings API
+✓ Shared Protocol — serialization for calibration markers/spec
+✓ iOS unit build — calibration models/detector/spec decoding (sim build; deprecation warnings only)
 ```
 
 ## Project Structure
@@ -206,7 +200,7 @@ airsync/
 │   └── pi-simulator/         # Test environment
 ├── docs/                     # Architecture documentation ✅
 │   └── shairport-sync-integration.md
-├── ios-app/                  # Swift iOS companion (coming soon)
+├── mobile-applications/AirSync/  # Swift iOS companion app (calibration + pairing)
 ├── tools/
 │   ├── hw-profiler/          # Hardware benchmarking (coming soon)
 │   └── latency-analyzer/     # Calibration data analysis (coming soon)
@@ -311,13 +305,14 @@ Wraps shairport-sync with:
 
 **Architecture**: We don't bundle shairport-sync. It's installed as a system dependency, and we generate configs + manage the process. See [docs/shairport-sync-integration.md](docs/shairport-sync-integration.md)
 
-### Latency Calibration (Coming Soon)
+### Latency Calibration (Implemented)
 
-iOS app measures speaker-to-microphone delay:
+Structured calibration flow between receiver and iOS:
 
-- Chirp-based audio signal (2kHz-8kHz sweep)
-- Cross-correlation algorithm for precise timing
-- ±5ms accuracy target
+- Receiver generates a structured 48 kHz WAV at install/startup with warm-up hum, multi-frequency markers, and trailing click.
+- `GET /api/calibration/spec` returns marker metadata (sample rate, length, markers) for iOS.
+- `POST /api/calibration/request` + `POST /api/calibration/ready` schedule playback using server time; playback uses the pre-generated WAV (or chirp fallback).
+- iOS records with padded window, runs matched filtering over the markers (sub-sample interpolation), computes latency/confidence, and can apply the offset via `POST /api/calibration/result`.
 
 ## Contributing
 

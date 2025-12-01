@@ -129,11 +129,11 @@ pub fn generate_structured_signal(path: impl AsRef<Path>) -> Result<StructuredSi
 
     // trailing silence then final click near end
     push_silence(200, &mut samples, &mut cursor);
-    push_click("click_b", 10, 0.9, &mut samples, &mut cursor, &mut markers);
+    push_click("click_b", 10, 0.4, &mut samples, &mut cursor, &mut markers);
 
     // trailing hum to keep path alive briefly
     push_silence(60, &mut samples, &mut cursor);
-    push_hum("warmdown", 200, 200, 0.1, &mut samples, &mut cursor, &mut markers);
+    push_hum("warmdown", 200, 200, 0.05, &mut samples, &mut cursor, &mut markers);
 
     // Ensure total length ~5s by padding if needed
     let target_len = (5_000u32 as usize * sample_rate as usize) / 1000;
